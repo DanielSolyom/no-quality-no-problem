@@ -8,7 +8,7 @@ entity legendary-quality stats.
 [![CI](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml)
 [![Mod portal](https://img.shields.io/factorio-mod-portal/v/no-quality-no-problem?label=mod%20portal&color=orange)](https://mods.factorio.com/mod/no-quality-no-problem)
 [![Downloads](https://img.shields.io/factorio-mod-portal/dt/no-quality-no-problem?color=blue)](https://mods.factorio.com/mod/no-quality-no-problem)
-[![Factorio](https://img.shields.io/badge/factorio-2.0%20%7C%202.1-yellow)](https://factorio.com)
+[![Factorio](https://img.shields.io/badge/factorio-2.1-yellow)](https://factorio.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 [Mod portal](https://mods.factorio.com/mod/no-quality-no-problem) ·
@@ -88,8 +88,6 @@ present" is self-referential and passes even on a mod that flattens everything t
 quality. Both tiers are negative-tested — a copy with the template selection inverted, and a
 copy with the module cleanup deleted, each fail.
 
-Set `TARGET_FV=2.0` to run the same suite against a Factorio 2.0 build.
-
 ## Releasing
 
 Releases are automated. Tag the version and push:
@@ -98,13 +96,9 @@ Releases are automated. Tag the version and push:
 git tag v1.1.0 && git push --tags
 ```
 
-`.github/workflows/release.yml` then tests against both engine versions and, only if green,
-uploads to the mod portal and syncs the page content from `portal.json` + `PORTAL.md`.
-
-A mod release declares exactly one major Factorio version, so the workflow publishes two
-releases from the same source: the tagged version for **2.1**, and the same content with the
-patch digit bumped for **2.0** (stable). Version rule: patch `0` = the 2.1 release, patch `1`
-= its 2.0 twin — bump the **minor** for content changes so the lanes never collide.
+`.github/workflows/release.yml` then runs the full test suite against a real headless
+Factorio and, only if green, uploads to the mod portal, syncs the page content from
+`portal.json` + `PORTAL.md`, and mirrors the zip as a GitHub release.
 
 Manual equivalents:
 
@@ -112,7 +106,6 @@ Manual equivalents:
 FACTORIO_API_KEY=... ./publish.sh --check-key             # verify the key
 FACTORIO_API_KEY=... ./publish.sh --first-publish         # first ever upload
 FACTORIO_API_KEY=... ./publish.sh --sync-details          # release + page content
-FACTORIO_API_KEY=... ./publish.sh --target 2.0            # the 2.0 release
 ```
 
 The key comes from <https://factorio.com/profile> and needs the usages *ModPortal: Upload

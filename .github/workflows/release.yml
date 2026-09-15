@@ -1,8 +1,6 @@
 name: Release to mod portal
 
 # Tag with the mod version, e.g.  git tag v1.1.0 && git push --tags
-# Publishes two releases of the same mod from one source tree: the tagged
-# version targeting Factorio 2.1, and version+1 patch targeting 2.0.
 on:
   push:
     tags: ['v*']
@@ -17,16 +15,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: 1          # one upload at a time; the portal is not a CDN
-      fail-fast: true
       matrix:
         include:
           - factorio: "2.1.17"
             target: "2.1"
-            sync: "--sync-details"   # push the portal page once, with the 2.1 release
-          - factorio: "2.0.77"
-            target: "2.0"
-            sync: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -64,9 +56,9 @@ jobs:
       - name: Publish
         env:
           FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}
-        run: ./publish.sh "$MOD_DIR" --target ${{ matrix.target }} ${{ matrix.sync }}
+        run: ./publish.sh "$MOD_DIR" --sync-details
 
-  # Mirror the release on GitHub: the same two zips the portal got, plus the
+  # Mirror the release on GitHub: the same zip the portal got, plus the
   # changelog entry for this version as release notes.
   github-release:
     needs: publish
@@ -76,10 +68,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build both zips
-        run: |
-          ./build.sh "$MOD_DIR"
-          ./build.sh "$MOD_DIR" 2.0
+      - name: Build zip
+        run: ./build.sh "$MOD_DIR"
 
       - name: Extract changelog entry
         run: |

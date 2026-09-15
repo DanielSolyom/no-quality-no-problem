@@ -4,16 +4,9 @@
 #
 #   ./build.sh [mod-dir] [target-factorio-version]
 #
-# A mod release declares exactly one major Factorio version, so shipping to both
-# stable (2.0) and experimental (2.1) players means two releases of the same mod.
-# The Lua is identical — only info.json differs — so this script derives the 2.0
-# release from the same source:
-#
-#   ./build.sh                 -> 1.0.0, factorio_version 2.1   (the 2.1 release)
-#   ./build.sh '' 2.0          -> 1.0.1, factorio_version 2.0   (same content)
-#
-# Version rule: the patch digit marks the target (0 = 2.1, 1 = 2.0). Bump the
-# MINOR for content changes so the two lanes never collide.
+# The optional second argument retargets info.json to another major Factorio
+# version (patch digit +1 to keep versions unique). The normal release needs
+# no arguments.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

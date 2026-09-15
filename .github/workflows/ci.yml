@@ -18,8 +18,7 @@ jobs:
       - run: luacheck .
 
   game:
-    # The mod ships a release for each major Factorio version, so both are tested
-    # from the same source. Versions are pinned on purpose: "latest" silently
+    # The engine version is pinned on purpose: "latest" silently
     # bumping the engine and turning CI red is worse than being deliberately one
     # release behind. Bump these when you bump the release.
     name: Factorio ${{ matrix.factorio }}
@@ -30,8 +29,6 @@ jobs:
         include:
           - factorio: "2.1.17"
             target: "2.1"
-          - factorio: "2.0.77"
-            target: "2.0"
     steps:
       - uses: actions/checkout@v7
 
