@@ -1,45 +1,19 @@
-Quality, gone. Legendary, everywhere.
+**Quality, gone. Legendary, everywhere.**
 
-This mod does two things at once:
+Don't enjoy the quality grind? This mod removes the whole quality mechanic from the game — and as a reward, **everything you build is automatically legendary**.
 
-* **Removes the quality mechanic.** No quality badges on items, no quality selector in
-  recipe/filter/logistic GUIs, no quality modules, no quality technologies, no quality
-  entries in Factoriopedia. The interface goes back to exactly what it looked like before
-  you researched quality.
-* **Makes everything legendary.** Every item, machine, building and piece of equipment has
-  full legendary stats — assembler speed, module slots, accumulator capacity, beacon
-  efficiency, mining drill drain, roboport range, the lot. Nothing is a "normal" version of
-  itself any more.
+## What it does
 
-## Why both halves
+* **No more quality.** No quality badges on items, no quality dropdowns in recipes and filters, no quality modules, no quality research. The game looks and plays like quality was never added.
+* **Everything is legendary.** Every machine, item and building has full legendary stats: faster assemblers, bigger accumulators, more module slots, better beacons, longer roboport range — all of it, for free.
 
-If you turn quality off and nothing else changes, your factory is quietly weaker than
-everyone else's for the rest of the run. If you make everything legendary and leave the
-quality mechanic in, you still click through quality selectors you will never use. This mod
-does both, so you can play Space Age without quality *and* without falling behind.
+## Why?
 
-## How it works
+If you just ignore quality, your factory is permanently weaker than it could be. If you chase legendary the normal way, you spend hundreds of hours on recyclers and upcycling loops. This mod skips both: you play the game exactly like before quality existed, and everything is already the best version of itself.
 
-It rewrites the quality prototypes in `data-final-fixes`: every quality is flattened onto
-the stats of the highest-level one, then all of them are hidden the same way the base game
-already hides "normal". There are no per-item lists anywhere in the mod. That means:
+## Good to know
 
-* it works with any mod set, including mods that add their own quality tiers or new
-  machines;
-* it keeps working when the base game adds new quality multipliers, with no mod update
-  needed.
-
-Quality modules lose their quality effect and are hidden; modded hybrid modules that also
-do something else keep their other effects. Speed modules keep working — only their quality
-penalty is removed. Quality-only technologies are hidden and spliced out of other
-technologies' prerequisites, so the tech tree stays connected.
-
-## Notes
-
-* Requires the Quality mod to be enabled — it works by rewriting quality, not by turning it
-  off. (In Factorio 2.1 you *can* simply disable the Quality mod, but then everything is
-  normal quality. This mod is the other option: quality invisible, legendary stats.)
-* Safe to add to an existing save. Items you already have at a non-normal quality keep their
-  (now identical) stats, but items of different qualities still do not stack.
-* Removing the mod restores the quality mechanic, since everything it changes is
-  prototype-level.
+* **Works with other mods** — including mods that add new machines or even their own quality tiers. Everything gets flattened to the best tier automatically.
+* **Safe to add to an existing save.** Your existing items keep working; different-quality items in old chests just won't stack with each other.
+* **Safe to remove.** Uninstall the mod and quality comes back exactly as it was.
+* **Keep the Quality mod enabled** — this mod needs it. (Simply disabling Quality also removes the mechanic, but then everything is stuck at *normal* stats. This mod gives you legendary instead.)
