@@ -69,25 +69,32 @@ if unzip -Z1 "$zip" | grep -qiE '\.(exe|bat|ps1|sh|py)$'; then
   echo "zip contains executable files; the portal will reject it" >&2; exit 1
 fi
 
-if [ "$first_publish" -eq 1 ]; then
-  init=$(post init_publish --data-urlencode "mod=$name")
-else
-  # Refuse to re-upload an existing version (public read API, no auth needed).
-  if curl -fsS "$API/mods/$name/full" 2>/dev/null \
-     | jq -e --arg v "$version" '.releases[]? | select(.version == $v)' >/dev/null; then
-    echo "version $version is already on the portal; bump info.json first"; exit 0
-  fi
-  init=$(post releases/init_upload --data-urlencode "mod=$name")
+# Skip (not fail) re-uploading an existing version, so --sync-details still
+# runs when the release itself is already up (e.g. after a manual first upload).
+skip_upload=0
+if [ "$first_publish" -ne 1 ] \
+   && curl -fsS "$API/mods/$name/full" 2>/dev/null \
+      | jq -e --arg v "$version" '.releases[]? | select(.version == $v)' >/dev/null; then
+  echo "version $version is already on the portal; skipping upload"
+  skip_upload=1
 fi
 
-upload_url=$(jq -r '.upload_url // empty' <<<"$init")
-[ -n "$upload_url" ] || { echo "init failed: $(jq -c . <<<"$init")" >&2; exit 1; }
-echo "::add-mask::$upload_url"   # upload_url is bearer-equivalent; no-op outside GH Actions
+if [ "$skip_upload" -eq 0 ]; then
+  if [ "$first_publish" -eq 1 ]; then
+    init=$(post init_publish --data-urlencode "mod=$name")
+  else
+    init=$(post releases/init_upload --data-urlencode "mod=$name")
+  fi
 
-res=$(curl -sS -X POST "$upload_url" -F "file=@${zip};type=application/x-zip-compressed")
-[ "$(jq -r '.success // false' <<<"$res")" = "true" ] \
-  || { echo "upload failed: $(jq -c . <<<"$res")" >&2; exit 1; }
-echo "published $name $version"
+  upload_url=$(jq -r '.upload_url // empty' <<<"$init")
+  [ -n "$upload_url" ] || { echo "init failed: $(jq -c . <<<"$init")" >&2; exit 1; }
+  echo "::add-mask::$upload_url"   # upload_url is bearer-equivalent; no-op outside GH Actions
+
+  res=$(curl -sS -X POST "$upload_url" -F "file=@${zip};type=application/x-zip-compressed")
+  [ "$(jq -r '.success // false' <<<"$res")" = "true" ] \
+    || { echo "upload failed: $(jq -c . <<<"$res")" >&2; exit 1; }
+  echo "published $name $version"
+fi
 
 # ---------------------------------------------------------------------------
 # Portal page content lives in the repo (portal.json + the referenced markdown),
