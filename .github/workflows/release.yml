@@ -28,7 +28,7 @@ jobs:
             target: "2.0"
             sync: ""
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check tag matches info.json
         run: |
@@ -40,7 +40,7 @@ jobs:
       # Never publish something that does not load.
       - name: Cache Factorio headless
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/factorio-${{ matrix.factorio }}
           key: factorio-headless-${{ matrix.factorio }}
@@ -65,3 +65,35 @@ jobs:
         env:
           FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}
         run: ./publish.sh "$MOD_DIR" --target ${{ matrix.target }} ${{ matrix.sync }}
+
+  # Mirror the release on GitHub: the same two zips the portal got, plus the
+  # changelog entry for this version as release notes.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build both zips
+        run: |
+          ./build.sh "$MOD_DIR"
+          ./build.sh "$MOD_DIR" 2.0
+
+      - name: Extract changelog entry
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            /^Version: /  { p = ($2 == v); next }
+            /^-{20,}/     { p = 0; next }
+            p' "$MOD_DIR/changelog.txt" > /tmp/notes.md
+          [ -s /tmp/notes.md ] || echo "See changelog.txt." > /tmp/notes.md
+          echo "Mod portal: https://mods.factorio.com/mod/$MOD_DIR" >> /tmp/notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag

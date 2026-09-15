@@ -12,7 +12,7 @@ jobs:
     name: luacheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install luacheck
         run: sudo apt-get update && sudo apt-get install -y lua5.4 luarocks && sudo luarocks install luacheck
       - run: luacheck .
@@ -33,11 +33,11 @@ jobs:
           - factorio: "2.0.77"
             target: "2.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache Factorio headless
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/factorio-${{ matrix.factorio }}
           key: factorio-headless-${{ matrix.factorio }}
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: factorio-logs-${{ matrix.factorio }}
           path: |
