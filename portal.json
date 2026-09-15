@@ -1,0 +1,9 @@
+{
+  "title": "No Quality, No Problem",
+  "summary": "Quality disabled, everything legendary. Removes the quality mechanic completely - no quality badges, no quality selector, no quality modules or research - and gives every item, machine and building full legendary stats in Space Age. All of the legendary payoff, none of the quality grind.",
+  "description_file": "PORTAL.md",
+  "category": "tweaks",
+  "tags": ["manufacturing", "cheats"],
+  "license": "default_mit",
+  "source_url": "https://github.com/DanielSolyom/no-quality-no-problem"
+}

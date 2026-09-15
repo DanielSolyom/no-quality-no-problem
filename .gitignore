@@ -1,0 +1,4 @@
+.testrun/
+dist/
+.build/
+*.zip

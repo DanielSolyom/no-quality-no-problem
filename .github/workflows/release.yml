@@ -1,0 +1,67 @@
+name: Release to mod portal
+
+# Tag with the mod version, e.g.  git tag v1.1.0 && git push --tags
+# Publishes two releases of the same mod from one source tree: the tagged
+# version targeting Factorio 2.1, and version+1 patch targeting 2.0.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  MOD_DIR: no-quality-no-problem
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1          # one upload at a time; the portal is not a CDN
+      fail-fast: true
+      matrix:
+        include:
+          - factorio: "2.1.17"
+            target: "2.1"
+            sync: "--sync-details"   # push the portal page once, with the 2.1 release
+          - factorio: "2.0.77"
+            target: "2.0"
+            sync: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches info.json
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version "$MOD_DIR/info.json")
+          TAG="${GITHUB_REF_NAME#v}"
+          [ "$VERSION" = "$TAG" ] || { echo "tag $TAG != info.json $VERSION"; exit 1; }
+
+      # Never publish something that does not load.
+      - name: Cache Factorio headless
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/factorio-${{ matrix.factorio }}
+          key: factorio-headless-${{ matrix.factorio }}
+
+      - name: Download Factorio headless
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fSL "https://factorio.com/get-download/${{ matrix.factorio }}/headless/linux64" -o /tmp/factorio.tar.xz
+          mkdir -p ~/factorio-${{ matrix.factorio }}
+          tar -xJf /tmp/factorio.tar.xz -C ~/factorio-${{ matrix.factorio }} --strip-components=1
+
+      - name: Test
+        env:
+          FACTORIO_BIN: /home/runner/factorio-${{ matrix.factorio }}/bin/x64/factorio
+          TARGET_FV: ${{ matrix.target }}
+        run: scripts/ci-test.sh all
+
+      # Uploads the zip, and (once) pushes the portal page content from
+      # portal.json so the mod page is reproducible from git. Needs a key with
+      # the usages "ModPortal: Upload Mods" + "ModPortal: Edit Mods".
+      - name: Publish
+        env:
+          FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}
+        run: ./publish.sh "$MOD_DIR" --target ${{ matrix.target }} ${{ matrix.sync }}

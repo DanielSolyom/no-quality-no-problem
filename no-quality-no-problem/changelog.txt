@@ -1,0 +1,8 @@
+---------------------------------------------------------------------------------------------------
+Version: 1.0.0
+Date: 2026-09-12
+  Features:
+    - Initial release.
+    - Removes the quality mechanic: quality badges, selectors, modules, technologies, Factoriopedia entries and tips are all gone.
+    - Gives every item and entity the stats of the highest quality tier, so everything is legendary.
+    - Generic implementation: all quality prototypes are flattened in data-final-fixes, so mod-added quality tiers and future base-game quality multipliers are covered without a mod update.
