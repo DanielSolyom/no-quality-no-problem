@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.4
+Date: 2026-09-20
+  Changes:
+    - Reissued 1.0.3 after withdrawing 2.0.0, restoring the required Quality dependency and the original implementation.
+    - Gameplay code is identical to 1.0.3, including the enemy, asteroid and acid exclusions.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.3
 Date: 2026-09-20
   Bugfixes:

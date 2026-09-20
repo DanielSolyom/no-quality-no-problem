@@ -36,10 +36,14 @@ major, minor, patch = '$version'.split('.')
 print(f'{major}.{minor}.{int(patch) + 1}')")
 fi
 
-stage="$root/.build/${name}_${version}"
+mkdir -p "$root/.build" "$root/dist"
+scratch=$(mktemp -d "$root/.build/package.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+stage="$scratch/${name}_${version}"
 out="$root/dist/${name}_${version}.zip"
 
-rm -rf "$root/.build"; mkdir -p "$stage" "$root/dist"; rm -f "$out"
+mkdir -p "$stage"
+rm -f "$out"
 # Copy mod content, excluding VCS/editor noise.
 (cd "$src" && tar --exclude-vcs --exclude='*.zip' -cf - .) | (cd "$stage" && tar -xf -)
 
@@ -55,7 +59,6 @@ json.dump(i, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')"
 fi
 
-(cd "$root/.build" && zip -qr "$out" "${name}_${version}")
-rm -rf "$root/.build"
+(cd "$scratch" && zip -qr "$out" "${name}_${version}")
 
 echo "$out"
