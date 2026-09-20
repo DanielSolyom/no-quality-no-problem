@@ -1,0 +1,97 @@
+name: Validate packaged mod
+
+on:
+  workflow_call:
+    inputs:
+      factorio:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  game:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [quality, space-age]
+    env:
+      FACTORIO_VERSION: ${{ inputs.factorio }}
+      TEST_PROFILE: ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate version
+        run: '[[ "$FACTORIO_VERSION" =~ ^2\.1\.[0-9]+$ ]]'
+
+      - name: Cache Factorio headless
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: ~/factorio-${{ inputs.factorio }}
+          key: factorio-headless-${{ inputs.factorio }}
+
+      - name: Download Factorio headless
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fSL --retry 3 "https://factorio.com/get-download/$FACTORIO_VERSION/headless/linux64" -o /tmp/factorio.tar.xz
+          mkdir -p "$HOME/factorio-$FACTORIO_VERSION"
+          tar -xJf /tmp/factorio.tar.xz -C "$HOME/factorio-$FACTORIO_VERSION" --strip-components=1
+
+      - name: Build and unpack the actual release package
+        run: |
+          ./build.sh
+          mkdir -p .testrun/package
+          unzip -q dist/no-quality-no-problem_*.zip -d .testrun/package
+          echo "MOD_ROOT=$PWD/.testrun/package/no-quality-no-problem_$(jq -r .version no-quality-no-problem/info.json)" >> "$GITHUB_ENV"
+
+      - name: Test packaged mod against an unmodified baseline
+        run: |
+          export FACTORIO_BIN="$HOME/factorio-$FACTORIO_VERSION/bin/x64/factorio"
+          "$FACTORIO_BIN" --version
+          export WORK="$PWD/.testrun/$FACTORIO_VERSION"
+          scripts/ci-test.sh all
+
+      - name: Record test outcome
+        if: always()
+        env:
+          TEST_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p .testrun/outcome
+          python3 - <<'PY'
+          import json, os, pathlib
+          report = {
+              "factorio_version": os.environ["FACTORIO_VERSION"],
+              "profile": os.environ["TEST_PROFILE"],
+              "status": os.environ["TEST_STATUS"],
+              "source_commit": os.environ["GITHUB_SHA"],
+              "mod_version": json.loads(pathlib.Path("no-quality-no-problem/info.json").read_text())["version"],
+          }
+          pathlib.Path(".testrun/outcome/result.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
+
+      - name: Upload outcome for the hourly detector
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compatibility-result-${{ inputs.factorio }}-${{ matrix.profile }}
+          path: .testrun/outcome/result.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload package and evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: factorio-${{ inputs.factorio }}-${{ matrix.profile }}
+          path: |
+            dist/*.zip
+            .testrun/**/*.log
+            .testrun/**/script-output/*.json
+            .testrun/outcome/result.json
+          include-hidden-files: true
+          retention-days: 30

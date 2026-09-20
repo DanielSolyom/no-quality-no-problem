@@ -25,6 +25,7 @@ end
 
 script.on_init(function()
   storage.results = {
+    version = script.active_mods.base, complete = false,
     health = {}, inventories = {}, attractors = {}, stickers = {}, combat = {}, healing = {},
     smoke_lifetimes = {}, fire_lifetimes = {},
   }
@@ -40,7 +41,9 @@ script.on_init(function()
   for name, p in pairs(prototypes.entity) do
     local health = p.get_max_health("normal")
     if health > 0 then
-      results.health[name] = {type = p.type, normal = health, best = p.get_max_health(best)}
+      local qualities = {}
+      for quality in pairs(prototypes.quality) do qualities[quality] = p.get_max_health(quality) end
+      results.health[name] = {type = p.type, normal = health, best = p.get_max_health(best), qualities = qualities}
     end
     -- Check actual instances of every asteroid, not only prototype lookups.
     if p.type == "asteroid" then
@@ -200,5 +203,8 @@ script.on_event(defines.events.on_tick, function(event)
       storage.results.healing[name] = item.entity.health - item.initial
     end
   end
-  if event.tick == 2400 then snapshot() end
+  if event.tick == 2400 then
+    storage.results.complete = true
+    snapshot()
+  end
 end)

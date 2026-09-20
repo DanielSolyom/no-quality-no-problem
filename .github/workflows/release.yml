@@ -12,43 +12,34 @@ env:
   MOD_DIR: no-quality-no-problem
 
 jobs:
-  publish:
+  versions:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - factorio: "2.1.17"
-            target: "2.1"
+    outputs:
+      versions: ${{ steps.matrix.outputs.versions }}
     steps:
       - uses: actions/checkout@v7
-
       - name: Check tag matches info.json
         run: |
-          set -euo pipefail
           VERSION=$(jq -r .version "$MOD_DIR/info.json")
-          TAG="${GITHUB_REF_NAME#v}"
-          [ "$VERSION" = "$TAG" ] || { echo "tag $TAG != info.json $VERSION"; exit 1; }
+          test "$VERSION" = "${GITHUB_REF_NAME#v}"
+      - id: matrix
+        run: echo "versions=$(python3 scripts/factorio-releases.py ci)" >> "$GITHUB_OUTPUT"
 
-      # Never publish something that does not load.
-      - name: Cache Factorio headless
-        id: cache
-        uses: actions/cache@v6
-        with:
-          path: ~/factorio-${{ matrix.factorio }}
-          key: factorio-headless-${{ matrix.factorio }}
+  validate:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        factorio: ${{ fromJSON(needs.versions.outputs.versions) }}
+    uses: ./.github/workflows/validate.yml
+    with:
+      factorio: ${{ matrix.factorio }}
 
-      - name: Download Factorio headless
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fSL "https://factorio.com/get-download/${{ matrix.factorio }}/headless/linux64" -o /tmp/factorio.tar.xz
-          mkdir -p ~/factorio-${{ matrix.factorio }}
-          tar -xJf /tmp/factorio.tar.xz -C ~/factorio-${{ matrix.factorio }} --strip-components=1
-
-      - name: Test
-        env:
-          FACTORIO_BIN: /home/runner/factorio-${{ matrix.factorio }}/bin/x64/factorio
-          TARGET_FV: ${{ matrix.target }}
-        run: scripts/ci-test.sh all
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
 
       # Uploads the zip, and (once) pushes the portal page content from
       # portal.json so the mod page is reproducible from git. Needs a key with
@@ -85,5 +76,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.zip \
-            --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.zip \
+              --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
+          fi

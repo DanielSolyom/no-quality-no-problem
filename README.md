@@ -106,8 +106,25 @@ directory, so it never touches your real saves, mods or script output.
 | `data` | the mod loads, then every quality prototype is compared against a **baseline dump taken with the mod disabled** — level, hidden flag, severed chain, multipliers, module effects, technology unlocks |
 | `runtime` | checks assembler speed and accumulator capacity, then compares world health, every enemy size, asteroid collisions on space platforms, acid/ash damage, hazard lifetimes, actual movement and vehicle slowing, repeated/overlapping acid, puddle escape, attack range, regeneration and player bonuses against an unmodified baseline; repeated with a custom quality tier and modded entities |
 
+The runtime stage also compares working electric-pole grids, inserter speeds,
+actual mining/resource consumption, science consumption, and seven capsule attacks
+(including spawned combat robots) against the unmodified game's highest quality.
+World health is checked at every quality tier, including old higher-quality objects.
+Data checks protect asteroid/enemy resistances, drops, regeneration, movement and
+collision properties. Missing observations, shortened attack traces and incomplete
+scenarios fail validation. Eight deliberately damaged reports verify that the
+checker rejects the reported enemy, asteroid, acid and ash regressions.
+
+Use `TEST_PROFILE=quality` for Quality + Recycler without Space Age; the default
+`space-age` profile enables all official expansion mods. Both profiles run in CI.
+`scripts/ci-test.sh player` and `scripts/ci-test.sh exclusions` run the focused
+gameplay suites. CI builds and unpacks the zip first, then tests its actual files
+and dependencies. Packaging preserves existing logs and cached engine downloads.
+
 The [exclusion audit](docs/quality-exclusions-audit.md) records the 1.0.2 acid slowdown
 defect, its correction and the full verification scope.
+The [compatibility research](docs/compatibility-validation.md) connects reports from
+similar mods and the withdrawn implementation's probes to the current tests.
 
 The baseline comparison is deliberate: an assertion like "every quality has the highest level
 present" is self-referential and passes even on a mod that flattens everything to the *worst*
@@ -123,8 +140,30 @@ git tag v1.1.0 && git push --tags
 ```
 
 `.github/workflows/release.yml` then runs the full test suite against a real headless
-Factorio and, only if green, uploads to the mod portal, syncs the page content from
+Factorio on the baseline and newest checked engine, with and without Space Age.
+Only if both versions and profiles pass, it uploads to the mod portal, syncs the page content from
 `portal.json` + `PORTAL.md`, and mirrors the zip as a GitHub release.
+
+### New Factorio releases
+
+[`factorio-updates.yml`](.github/workflows/factorio-updates.yml) checks the official
+release metadata **hourly, at minute 17**. The normal no-change run only checks out
+the repository and reads two small JSON indexes; it does not download Factorio or
+run tests. The update index also catches releases missed between hourly runs.
+
+Each new supported **2.1** release gets a fresh build and the same full validation
+used for tagged releases, with and without Space Age. The workflow archives the
+package, logs, JSON observations and pass/fail report as Actions artifacts named
+by engine version and profile (30-day retention). These are compatibility builds
+of the current mod version; publishing a new mod version uses the release tags above.
+
+[`.github/factorio-releases.json`](.github/factorio-releases.json) records the exact
+source commit, mod version, result and workflow link. Both passed and failed
+versions are remembered, preventing expensive retries every hour. A failed run
+is never recorded as supported. Use **Actions → Check Factorio releases → Run
+workflow**, supplying the exact engine version, to retry after a fix. Ordinary
+pushes also test the newest observed engine, including a version that failed.
+New engine release lines require an explicit compatibility update.
 
 Manual equivalents:
 

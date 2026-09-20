@@ -4,8 +4,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: "0 5 * * 1"   # weekly: catch engine updates breaking the mod
 
 jobs:
   lint:
@@ -16,61 +14,24 @@ jobs:
       - name: Install luacheck
         run: sudo apt-get update && sudo apt-get install -y lua5.4 luarocks && sudo luarocks install luacheck
       - run: luacheck .
+      - run: python3 -m unittest discover -s tests -v
+      - run: bash -n build.sh publish.sh scripts/ci-test.sh
+
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.matrix.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: matrix
+        run: echo "versions=$(python3 scripts/factorio-releases.py ci)" >> "$GITHUB_OUTPUT"
 
   game:
-    # The engine version is pinned on purpose: "latest" silently
-    # bumping the engine and turning CI red is worse than being deliberately one
-    # release behind. Bump these when you bump the release.
-    name: Factorio ${{ matrix.factorio }}
-    runs-on: ubuntu-latest
+    needs: versions
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - factorio: "2.1.17"
-            target: "2.1"
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Cache Factorio headless
-        id: cache
-        uses: actions/cache@v6
-        with:
-          path: ~/factorio-${{ matrix.factorio }}
-          key: factorio-headless-${{ matrix.factorio }}
-
-      # The headless build is a free, no-account download and it ships the
-      # expansion data (quality, space-age), so the Space Age data stage runs in
-      # CI with no licensed files involved.
-      - name: Download Factorio headless
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          curl -fSL "https://factorio.com/get-download/${{ matrix.factorio }}/headless/linux64" -o /tmp/factorio.tar.xz
-          mkdir -p ~/factorio-${{ matrix.factorio }}
-          tar -xJf /tmp/factorio.tar.xz -C ~/factorio-${{ matrix.factorio }} --strip-components=1
-          ~/factorio-${{ matrix.factorio }}/bin/x64/factorio --version
-
-      - name: Data stage + prototype assertions
-        env:
-          FACTORIO_BIN: /home/runner/factorio-${{ matrix.factorio }}/bin/x64/factorio
-          TARGET_FV: ${{ matrix.target }}
-        run: scripts/ci-test.sh data
-
-      - name: Runtime assertions (--scenario2map)
-        env:
-          FACTORIO_BIN: /home/runner/factorio-${{ matrix.factorio }}/bin/x64/factorio
-          TARGET_FV: ${{ matrix.target }}
-        run: scripts/ci-test.sh runtime
-
-      - name: Package
-        run: ./build.sh '' ${{ matrix.target }}
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: factorio-logs-${{ matrix.factorio }}
-          path: |
-            .testrun/*.log
-            .testrun/*/data/script-output/*.json
-          retention-days: 7
+        factorio: ${{ fromJSON(needs.versions.outputs.versions) }}
+    uses: ./.github/workflows/validate.yml
+    with:
+      factorio: ${{ matrix.factorio }}

@@ -1,0 +1,90 @@
+name: Check Factorio releases
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      factorio:
+        description: 'Optional exact 2.1 version to retry, even if already checked'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factorio-release-check
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Check release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      versions: ${{ steps.plan.outputs.versions }}
+      changed: ${{ steps.plan.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch small release indexes
+        run: |
+          curl -fLsS --retry 2 --max-time 30 https://factorio.com/api/latest-releases -o /tmp/latest.json
+          curl -fLsS --retry 2 --max-time 30 https://updater.factorio.com/get-available-versions -o /tmp/history.json
+      - name: Find unchecked compatible releases
+        id: plan
+        env:
+          FORCE_VERSION: ${{ inputs.factorio }}
+        run: |
+          versions=$(python3 scripts/factorio-releases.py plan --latest /tmp/latest.json --history /tmp/history.json --force "$FORCE_VERSION")
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          if [ "$versions" = '[]' ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'No new supported Factorio releases. No downloads, tests or builds needed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+            echo "Factorio releases to validate: $versions" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  validate:
+    needs: detect
+    if: needs.detect.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        factorio: ${{ fromJSON(needs.detect.outputs.versions) }}
+    uses: ./.github/workflows/validate.yml
+    with:
+      factorio: ${{ matrix.factorio }}
+
+  record:
+    name: Remember the checked versions
+    needs: [detect, validate]
+    if: always() && needs.detect.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: compatibility-result-*
+          path: /tmp/results
+      - name: Record pass or failure with its evidence
+        env:
+          VERSIONS: ${{ needs.detect.outputs.versions }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/factorio-releases.py record --versions "$VERSIONS" --reports /tmp/results --run-url "$RUN_URL"
+          cat .github/factorio-releases.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Save the release check state
+        run: |
+          if git diff --quiet -- .github/factorio-releases.json; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/factorio-releases.json
+          git commit -m 'Record Factorio compatibility checks'
+          git push
