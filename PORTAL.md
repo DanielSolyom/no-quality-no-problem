@@ -1,11 +1,12 @@
-**Quality, gone. Legendary, everywhere.**
+**Quality, gone. Your factory, legendary.**
 
 Don't enjoy the quality grind? This mod removes the whole quality mechanic from the game — and as a reward, **everything you build is automatically legendary**.
 
 ## What it does
 
 * **No more quality.** No quality badges on items, no quality dropdowns in recipes and filters, no quality modules, no quality research. The game looks and plays like quality was never added.
-* **Everything is legendary.** Every machine, item and building has full legendary stats: faster assemblers, bigger accumulators, more module slots, better beacons, longer roboport range — all of it, for free.
+* **Your factory and equipment are legendary.** Your machines, items, buildings and player equipment have full legendary stats: faster assemblers, bigger accumulators, more module slots, better beacons, longer roboport range — all of it, for free.
+* **Enemies and world hazards stay normal.** Biters, spitters, worms, nests, pentapods, demolishers and every asteroid type keep normal stats. Enemy attacks, including acid puddles, keep their original damage. Crash-site wrecks and natural Fulgoran lightning attractors are excluded too.
 
 ## Why?
 
@@ -13,7 +14,7 @@ If you just ignore quality, your factory is permanently weaker than it could be.
 
 ## Good to know
 
-* **Works with other mods** — including mods that add new machines or even their own quality tiers. Everything gets flattened to the best tier automatically.
+* **Supports modded quality tiers.** Factory and equipment bonuses follow the highest quality tier. The exclusion list covers mod-added enemies and asteroids using the excluded entity types; unusual mod-specific world objects may need additional exclusions.
 * **Safe to add to an existing save.** Your existing items keep working; different-quality items in old chests just won't stack with each other.
 * **Safe to remove.** Uninstall the mod and quality comes back exactly as it was.
 * **Keep the Quality mod enabled** — this mod needs it. (Simply disabling Quality also removes the mechanic, but then everything is stuck at *normal* stats. This mod gives you legendary instead.)

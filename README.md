@@ -1,9 +1,9 @@
 # No Quality, No Problem
 
-**Quality, gone. Legendary, everywhere.**
+**Quality, gone. Your factory, legendary.**
 
-A Factorio mod that removes the quality mechanic from the game *and* gives every item and
-entity legendary-quality stats.
+A Factorio mod that removes the quality mechanic and gives your factory and player
+equipment legendary-quality stats. Enemies and world hazards keep their normal stats.
 
 [![CI](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml)
 [![Mod portal](https://img.shields.io/factorio-mod-portal/v/no-quality-no-problem?label=mod%20portal&color=orange)](https://mods.factorio.com/mod/no-quality-no-problem)
@@ -22,25 +22,47 @@ mechanic disappears and the payoff stays.
 
 ## How it works
 
-Every quality effect in the engine comes from a `QualityPrototype`: its `level` drives the
-engine's per-level scaling, and a fixed set of `*_multiplier` / `*_bonus` fields supplies
-the rest. Nothing is stored per item. So the whole mod is one `data-final-fixes.lua` that:
+The shared `QualityPrototype` controls the engine's quality multipliers and bonuses.
+The mod runs in `data-final-fixes.lua` and:
 
 1. finds the highest-level quality present and copies **all** of its stat fields onto every
-   other quality, with a generic key loop — no hardcoded field list, so multipliers added by
-   a future Factorio version are picked up with no mod update;
-2. hides every quality (`hidden`, `draw_sprite_by_default = false`) — the same mechanism the
+   other quality with a generic key loop;
+2. offsets the changed multipliers for entities in the exclusion list, preserving their
+   original normal-quality health, attack damage, attack range and relevant world-object stats;
+3. hides every quality (`hidden`, `draw_sprite_by_default = false`) — the same mechanism the
    base game already uses to hide `normal` — and severs the quality upgrade chain;
-3. strips the `quality` effect from every module, makes penalty-only quality modules inert
+4. strips the `quality` effect from every module, makes penalty-only quality modules inert
    and hides them, hides their recipes, and removes quality technologies while splicing them
    out of other technologies' prerequisites so the tech tree stays connected;
-4. removes the quality tips-and-tricks entries and hides the quality signal.
+5. removes the quality tips-and-tricks entries and hides the quality signal.
 
-There are no per-item lists anywhere. Consequences worth stating:
+### Exclusion list
 
-* It works with **any mod set**. Verified against a synthetic mod that adds a level-7
-  `mythic` quality using a stat field vanilla never sets on qualities: everything flattens
-  to it automatically.
+[`quality-exclusions.lua`](no-quality-no-problem/quality-exclusions.lua) lists entity types,
+names and name prefixes that retain normal stats:
+
+* All asteroid sizes and materials: metallic, carbonic, oxide and promethium.
+* Biters, spitters, nests, worms, pentapods and their legs, demolishers and their segments.
+* Crash-site wrecks, containers and fires, natural Fulgoran lightning attractors, markets and
+  simple entities with an owner or force.
+
+Spitter and worm acid damage is corrected at the attacking entity, including the damage
+inherited by projectiles and lingering puddles. Shared player projectiles retain their bonuses.
+Nest acid clouds, demolisher ash clouds and enemy slowing/disruption effects are excluded too.
+Trees, rocks and ordinary natural plants already ignore quality health scaling.
+
+Factories, logistics (including belt splitters), player defences, characters, vehicles and
+equipment keep their bonuses. Parts shared by enemies and player vehicles are separated
+before applying exclusions.
+
+Adding a prototype name requires handling its quality-sensitive properties in
+[`preserve-world-stats.lua`](no-quality-no-problem/preserve-world-stats.lua) if it uses a
+different entity type. Mods with additional scripted quality mechanics may need compatibility
+code. Enemy effect durations round down to whole ticks when a modded quality multiplier would
+require a fractional prototype duration.
+
+* Higher quality tiers are supported. Tests include a level-7 tier with explicit multipliers
+  and mod-added enemies and asteroids.
 * Speed modules keep working — vanilla speed modules carry a *negative* quality effect, and
   only that field is removed.
 * It is prototype-level only, so uninstalling restores the quality mechanic.
@@ -81,7 +103,7 @@ directory, so it never touches your real saves, mods or script output.
 | stage | what it checks |
 |---|---|
 | `data` | the mod loads, then every quality prototype is compared against a **baseline dump taken with the mod disabled** — level, hidden flag, severed chain, multipliers, module effects, technology unlocks |
-| `runtime` | a scenario asserts real engine values in-game via `--scenario2map`: assembler `crafting_speed == 3.125`, accumulator buffer `== 30 MJ` |
+| `runtime` | checks assembler speed and accumulator capacity, then compares world health, real enemy attacks, acid/ash clouds, slowing effects, attack range, regeneration and player bonuses against an unmodified baseline; repeated with a custom quality tier and modded entities |
 
 The baseline comparison is deliberate: an assertion like "every quality has the highest level
 present" is self-referential and passes even on a mod that flattens everything to the *worst*

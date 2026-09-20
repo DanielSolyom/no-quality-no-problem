@@ -7,12 +7,12 @@ exclude_files = { ".testrun", "dist", ".build" }
 
 read_globals = {
   -- data stage
-  "data", "mods", "settings", "feature_flags", "table_size",
+  "mods", "settings", "feature_flags", "table_size",
   "log", "localised_print", "serpent",
   -- control stage
-  "game", "script", "storage", "commands", "remote", "rendering",
+  "game", "script", "commands", "remote", "rendering",
   "prototypes", "helpers", "defines", "rcon",
   -- Lua 5.2 extras Factorio keeps
   "table", "string", "math",
 }
-globals = { "data" }
+globals = { "data", "storage" }

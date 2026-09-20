@@ -1,11 +1,12 @@
 -- Always Legendary (No Quality)
 --
--- Strategy (fully generic, no per-item lists):
---   1. Every quality effect in the engine is driven by the QualityPrototype:
+-- Strategy:
+--   1. The QualityPrototype drives the engine's quality scaling through:
 --      `level` (engine-side per-level scaling) plus explicit multiplier/bonus
 --      fields. So flattening ALL quality prototypes to the stats of the
 --      highest-level quality ("legendary" in vanilla) makes every item and
---      entity behave as legendary, automatically, for any mod set.
+--      factory entity behave as legendary. The exclusion list compensates
+--      enemies and world objects so they keep their normal stats.
 --   2. Hiding every quality (like the base game hides "normal") removes the
 --      quality UI: no quality badges, no quality selectors, no Factoriopedia
 --      entries.
@@ -31,6 +32,8 @@ for _, q in pairs(qualities) do
   end
 end
 if not template then return end
+
+require("preserve-world-stats")(qualities.normal, template)
 
 -- Identity/cosmetic/progression keys that must NOT be copied between qualities.
 local skip = {

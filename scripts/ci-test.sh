@@ -2,7 +2,7 @@
 # CI test runner for the no-quality-no-problem mod.
 #
 #   ci-test.sh data       data-stage load + prototype assertions (vs. a baseline dump)
-#   ci-test.sh runtime    control-stage assertions via --scenario2map
+#   ci-test.sh runtime    control-stage assertions and simulated enemy attacks
 #   ci-test.sh all        both (default)
 #
 # Every Factorio invocation uses an isolated write-data directory and an explicit
@@ -235,6 +235,52 @@ LUA
     grep -E 'CHECK |AL-CHECK' "$WORK/runtime.log" | sed 's/^.*control\.lua:[0-9]*: /  /'
     fail "runtime assertions"
   fi
+
+  stage_exclusions
+}
+
+stage_exclusions() {
+  echo "== world exclusions =="
+  local variant mode env sc fixture
+  for variant in vanilla mythic; do
+    for mode in baseline modded; do
+      env="exclusions-$variant-$mode"
+      local enabled=false
+      [ "$mode" = modded ] && enabled=true
+      make_env "$env" "$enabled"
+      sc="$WORK/$env/data/scenarios/exclusions"
+      mkdir -p "$sc"
+      cp "$REPO/scripts/exclusions-control.lua" "$sc/control.lua"
+      if [ "$variant" = mythic ]; then
+        fixture="$WORK/$env/mods/exclusions-fixture"
+        mkdir -p "$fixture"
+        cat > "$fixture/info.json" <<JSON
+{"name":"exclusions-fixture","version":"1.0.0","title":"Exclusion test fixture",
+ "author":"Tests","factorio_version":"$TARGET_FV","dependencies":["quality", "space-age"]}
+JSON
+        cp "$REPO/scripts/exclusions-fixture.lua" "$fixture/data.lua"
+        python3 - "$WORK/$env/mods/mod-list.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+d['mods'].append({'name': 'exclusions-fixture', 'enabled': True})
+with open(p, 'w') as f:
+    json.dump(d, f)
+PY
+      fi
+      run_factorio "$env" "$WORK/$env-init.log" --scenario2map exclusions || { fail "$env init"; return; }
+      run_factorio "$env" "$WORK/$env-combat.log" --benchmark "$WORK/$env/data/saves/exclusions.zip" \
+        --benchmark-ticks 1201 --benchmark-runs 1 || { fail "$env combat"; return; }
+    done
+    if python3 "$REPO/scripts/check-exclusions.py" \
+      "$WORK/exclusions-$variant-baseline/data/script-output/exclusions.json" \
+      "$WORK/exclusions-$variant-modded/data/script-output/exclusions.json"; then
+      pass "$variant world stats match the unmodified game; player bonuses remain"
+    else
+      fail "$variant world exclusions"
+    fi
+  done
 }
 
 case "${1:-all}" in

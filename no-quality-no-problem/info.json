@@ -1,11 +1,11 @@
 {
   "name": "no-quality-no-problem",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "title": "No Quality, No Problem",
   "author": "Daniel Solyom",
   "factorio_version": "2.1",
   "dependencies": [
     "quality >= 2.1.0"
   ],
-  "description": "Quality disabled, everything legendary. Removes the quality mechanic completely - no quality badges, no quality selector, no quality modules or research - and gives every item, machine and building full legendary stats in Space Age. All of the legendary payoff, none of the quality grind."
+  "description": "Quality disabled, legendary factories and player equipment. Removes quality badges, selectors, modules and research, while giving your factory full legendary stats. Enemies, asteroids and world hazards keep their normal stats."
 }

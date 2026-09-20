@@ -1,4 +1,13 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.2
+Date: 2026-09-20
+  Bugfixes:
+    - Added an exclusion list so enemies, nests, worms, pentapods, demolishers and all asteroid variants keep normal health, attack damage and range.
+    - Enemy acid impacts and lingering puddles retain their original damage.
+    - Excluded nest acid clouds, demolisher ash-cloud damage and enemy slowing/disruption effect durations from quality bonuses.
+    - Crash-site wrecks, containers and fires, natural Fulgoran lightning attractors and other excluded world objects retain normal stats.
+    - Player factories, logistics, defences, characters and equipment retain their quality bonuses, including Spidertron parts shared with excluded entities.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.1
 Date: 2026-09-15
   Changes:
