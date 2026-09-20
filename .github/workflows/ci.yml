@@ -2,8 +2,18 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Share the release queue with the hourly Factorio checks. PRs stay independent.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'mod-release' || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   lint:
@@ -21,10 +31,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.matrix.outputs.versions }}
+      engine: ${{ steps.matrix.outputs.engine }}
+      source_ref: ${{ steps.release.outputs.source_ref || github.sha }}
+      mod_version: ${{ steps.release.outputs.mod_version }}
+      release_date: ${{ steps.release.outputs.release_date }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - id: matrix
-        run: echo "versions=$(python3 scripts/factorio-releases.py ci)" >> "$GITHUB_OUTPUT"
+        run: |
+          versions=$(python3 scripts/factorio-releases.py ci)
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "engine=$(jq -r '.[-1]' <<< "$versions")" >> "$GITHUB_OUTPUT"
+      - name: Choose the next patch, or resume this commit's release
+        id: release
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          python3 scripts/factorio-releases.py main-release --date "$(date -u +%F)" > /tmp/release.json
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' /tmp/release.json >> "$GITHUB_OUTPUT"
 
   game:
     needs: versions
@@ -35,3 +60,22 @@ jobs:
     uses: ./.github/workflows/validate.yml
     with:
       factorio: ${{ matrix.factorio }}
+      ref: ${{ needs.versions.outputs.source_ref }}
+      mod_version: ${{ needs.versions.outputs.mod_version }}
+      release_date: ${{ needs.versions.outputs.release_date }}
+      release_engine: ${{ needs.versions.outputs.engine }}
+      release_kind: main
+
+  publish:
+    needs: [lint, versions, game]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      source_ref: ${{ needs.versions.outputs.source_ref }}
+      mod_version: ${{ needs.versions.outputs.mod_version }}
+      release_date: ${{ needs.versions.outputs.release_date }}
+      engine: ${{ needs.versions.outputs.engine }}
+    secrets:
+      FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}

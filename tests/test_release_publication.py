@@ -76,6 +76,7 @@ class Publication(unittest.TestCase):
             **os.environ,
             "PATH": str(tools) + os.pathsep + os.environ["PATH"],
             "FACTORIO_VERSION": "2.1.20",
+            "RELEASE_KIND": "factorio",
             "MOD_VERSION": "1.0.5",
             "RELEASE_DATE": "2026-09-20",
             "RELEASE_BRANCH": "main",
@@ -103,6 +104,25 @@ class Publication(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+        )
+
+    def main_candidate(self):
+        self.env["RELEASE_KIND"] = "main"
+        subprocess.run(
+            ["python3", "scripts/factorio-releases.py", "prepare", "--kind", "main",
+             "--engine", "2.1.20", "--mod-version", "1.0.5", "--date", "2026-09-20"],
+            cwd=self.repo, check=True, capture_output=True, text=True,
+        )
+        mod = self.repo / "no-quality-no-problem"
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            for path in mod.iterdir():
+                archive.write(path, "no-quality-no-problem_1.0.5/" + path.name)
+        self.git("restore", "no-quality-no-problem")
+
+    def plan_main(self, released_on="2026-09-20"):
+        return subprocess.run(
+            ["python3", "scripts/factorio-releases.py", "main-release", "--date", released_on],
+            cwd=self.repo, capture_output=True, text=True, check=False,
         )
 
     def check_partial_upload(self, failure, expected_calls):
@@ -137,7 +157,108 @@ class Publication(unittest.TestCase):
             "FAIL_GITHUB", ["portal", "github", "portal", "github"]
         )
 
-    def test_mismatching_archive_never_creates_a_tag_or_uploads(self):
+    def test_main_plans_a_patch_without_changing_the_source(self):
+        result = self.plan_main()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            "mod_version": "1.0.5", "release_date": "2026-09-20",
+            "source_ref": self.git("rev-parse", "HEAD"),
+        })
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_main_publishes_the_tested_patch_and_preserves_engine_history(self):
+        self.main_candidate()
+        source = self.git("rev-parse", "HEAD")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        state = json.loads((self.repo / ".github/factorio-releases.json").read_text())
+        self.assertEqual(state["checked"], {})
+        self.assertEqual(state["main_release"]["source_commit"], source)
+        self.assertEqual(state["main_release"]["release_ref"], "v1.0.5")
+        self.assertEqual(self.git("rev-parse", "origin/main"), self.git("rev-parse", "v1.0.5"))
+        with zipfile.ZipFile(self.archive) as archive:
+            for item in archive.infolist():
+                relative = item.filename.split("/", 1)[1]
+                self.assertEqual(archive.read(item), (self.repo / "no-quality-no-problem" / relative).read_bytes())
+        self.assertIn("Initial tested source", (self.repo / "no-quality-no-problem/changelog.txt").read_text())
+        self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
+
+    def check_main_retry(self, failure, expected_calls):
+        self.main_candidate()
+        source = self.git("rev-parse", "HEAD")
+        result = self.publish(**{failure: "1"})
+        self.assertNotEqual(result.returncode, 0)
+        checkpoint = self.git("rev-parse", "v1.0.5")
+        # A failed-job retry receives the original successful jobs' outputs.
+        self.git("checkout", "--detach", source)
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("tag", "--list"), "v1.0.5")
+        self.assertEqual(self.git("rev-parse", "v1.0.5"), checkpoint)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), expected_calls)
+
+    def test_main_portal_retry_reuses_tag_from_original_ci_commit(self):
+        self.check_main_retry("FAIL_PORTAL", ["portal", "portal", "github"])
+
+    def test_main_github_retry_reuses_tag_from_original_ci_commit(self):
+        self.check_main_retry("FAIL_GITHUB", ["portal", "github", "portal", "github"])
+
+    def test_full_ci_retry_and_manual_retry_keep_the_frozen_version_and_date(self):
+        self.main_candidate()
+        source = self.git("rev-parse", "HEAD")
+        self.assertNotEqual(self.publish(FAIL_PORTAL="1").returncode, 0)
+        for ref in (source, "v1.0.5"):
+            with self.subTest(ref=ref):
+                self.git("checkout", "--detach", ref)
+                result = self.plan_main("2026-09-21")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    "mod_version": "1.0.5", "source_ref": "v1.0.5", "release_date": "2026-09-20",
+                })
+
+    def test_new_main_change_gets_the_next_patch(self):
+        self.main_candidate()
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (self.repo / "no-quality-no-problem/data-final-fixes.lua").write_text("-- next change\n")
+        self.git("add", ".")
+        self.git("commit", "-m", "Next change")
+        result = self.plan_main()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["mod_version"], "1.0.6")
+
+    def test_main_does_not_reuse_an_unrelated_release_tag(self):
+        source = self.git("rev-parse", "HEAD")
+        result = self.publish()  # The hourly engine release owns this version.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        checkpoint = self.git("rev-parse", "v1.0.5")
+        self.git("checkout", "--detach", source)
+        self.main_candidate()
+        self.assertNotEqual(self.plan_main().returncode, 0)
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different release", result.stderr)
+        self.assertEqual(self.git("rev-parse", "v1.0.5"), checkpoint)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
+
+    def test_main_allows_state_only_commits_during_validation(self):
+        self.main_candidate()
+        source = self.git("rev-parse", "HEAD")
+        state_path = self.repo / ".github/factorio-releases.json"
+        state = json.loads(state_path.read_text())
+        state["checked"]["2.1.19"] = {"status": "passed"}
+        state_path.write_text(json.dumps(state))
+        self.git("add", ".")
+        self.git("commit", "-m", "Record Factorio compatibility checks")
+        self.git("push", "origin", "HEAD:main")
+        self.git("checkout", "--detach", source)
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["checked"]["2.1.19"], {"status": "passed"})
+        self.assertEqual(state["main_release"]["source_commit"], source)
+
+    def check_mismatching_archive(self):
         with zipfile.ZipFile(self.archive, "a") as archive:
             archive.writestr(
                 "no-quality-no-problem_1.0.5/untested.lua", "-- not tested"
@@ -148,7 +269,14 @@ class Publication(unittest.TestCase):
         self.assertEqual(self.git("tag", "--list"), "")
         self.assertFalse((self.root / "calls").exists())
 
-    def test_code_pushed_during_tests_is_not_released(self):
+    def test_mismatching_archive_never_creates_a_tag_or_uploads(self):
+        self.check_mismatching_archive()
+
+    def test_main_mismatching_archive_never_creates_a_tag_or_uploads(self):
+        self.main_candidate()
+        self.check_mismatching_archive()
+
+    def check_concurrent_push(self):
         original = self.git("rev-parse", "HEAD")
         (self.repo / "no-quality-no-problem/data-final-fixes.lua").write_text(
             "-- new untested code\n"
@@ -161,6 +289,13 @@ class Publication(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.git("tag", "--list"), "")
         self.assertFalse((self.root / "calls").exists())
+
+    def test_code_pushed_during_tests_is_not_released(self):
+        self.check_concurrent_push()
+
+    def test_main_code_pushed_during_tests_is_not_released(self):
+        self.main_candidate()
+        self.check_concurrent_push()
 
 
 if __name__ == "__main__":

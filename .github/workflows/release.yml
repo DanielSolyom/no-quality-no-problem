@@ -1,88 +1,51 @@
 name: Release to mod portal
 
-# Tag with the mod version, e.g.  git tag v1.1.0 && git push --tags
+# Publication is part of the successful main CI run, never triggered by a tag.
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      mod_version:
+        required: true
+        type: string
+      release_date:
+        required: true
+        type: string
+      engine:
+        required: true
+        type: string
+    secrets:
+      FACTORIO_API_KEY:
+        required: true
 
 permissions:
-  contents: read
-
-concurrency:
-  group: mod-release
-  cancel-in-progress: false
-
-env:
-  MOD_DIR: no-quality-no-problem
+  contents: write
 
 jobs:
-  versions:
-    runs-on: ubuntu-latest
-    outputs:
-      versions: ${{ steps.matrix.outputs.versions }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Check tag matches info.json
-        run: |
-          VERSION=$(jq -r .version "$MOD_DIR/info.json")
-          test "$VERSION" = "${GITHUB_REF_NAME#v}"
-      - id: matrix
-        run: echo "versions=$(python3 scripts/factorio-releases.py ci)" >> "$GITHUB_OUTPUT"
-
-  validate:
-    needs: versions
-    strategy:
-      fail-fast: false
-      matrix:
-        factorio: ${{ fromJSON(needs.versions.outputs.versions) }}
-    uses: ./.github/workflows/validate.yml
-    with:
-      factorio: ${{ matrix.factorio }}
-
   publish:
-    needs: validate
+    name: Tag and publish the tested patch
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RELEASE_KIND: main
+      FACTORIO_VERSION: ${{ inputs.engine }}
+      MOD_VERSION: ${{ inputs.mod_version }}
+      RELEASE_DATE: ${{ inputs.release_date }}
+      RELEASE_BRANCH: main
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v7
-
-      # Uploads the zip, and (once) pushes the portal page content from
-      # portal.json so the mod page is reproducible from git. Needs a key with
-      # the usages "ModPortal: Upload Mods" + "ModPortal: Edit Mods".
-      - name: Publish
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: factorio-${{ inputs.engine }}-space-age
+          path: /tmp/validated
+      - name: Commit, tag and publish the exact tested archive
         env:
           FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}
-        run: ./publish.sh "$MOD_DIR" --sync-details
-
-  # Mirror the release on GitHub: the same zip the portal got, plus the
-  # changelog entry for this version as release notes.
-  github-release:
-    needs: publish
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Build zip
-        run: ./build.sh "$MOD_DIR"
-
-      - name: Extract changelog entry
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          awk -v v="$VERSION" '
-            /^Version: /  { p = ($2 == v); next }
-            /^-{20,}/     { p = 0; next }
-            p' "$MOD_DIR/changelog.txt" > /tmp/notes.md
-          [ -s /tmp/notes.md ] || echo "See changelog.txt." > /tmp/notes.md
-          echo "Mod portal: https://mods.factorio.com/mod/$MOD_DIR" >> /tmp/notes.md
-
-      - name: Create GitHub release
-        env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/*.zip \
-              --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
-          fi
+        run: scripts/release-tested.sh "/tmp/validated/dist/no-quality-no-problem_$MOD_VERSION.zip"

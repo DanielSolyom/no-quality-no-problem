@@ -138,7 +138,46 @@ def record(state, versions, reports, run_url, published=False, validation_passed
     return state
 
 
-def prepare(mod, engine, target, released_on):
+def main_release(mod, state, released_on):
+    """Choose a patch before CI; retries reuse the frozen tag, including its date."""
+    date.fromisoformat(released_on)
+    source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    info = json.loads((mod / "info.json").read_text())
+    entry = state.get("main_release", {})
+    # A manual retry can start at the release commit already pushed by CI.
+    current_tag = "v" + info["version"]
+    current = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", current_tag + "^{commit}"],
+        capture_output=True, text=True,
+    )
+    if entry.get("release_ref") == current_tag and current.stdout.strip() == source:
+        return {
+            "mod_version": info["version"],
+            "source_ref": current_tag,
+            "release_date": entry["release_date"],
+        }
+    major, minor, patch = version(info["version"])
+    target = f"{major}.{minor}.{patch + 1}"
+    tag = "v" + target
+    existing = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", tag + "^{commit}"],
+        capture_output=True, text=True,
+    )
+    if existing.returncode == 0:
+        frozen = json.loads(subprocess.check_output(
+            ["git", "show", f"{tag}:.github/factorio-releases.json"], text=True
+        )).get("main_release", {})
+        if frozen.get("source_commit") != source or frozen.get("mod_version") != target:
+            raise ValueError(f"{tag} belongs to a different release; run CI on current main")
+        return {
+            "mod_version": target,
+            "source_ref": tag,
+            "release_date": frozen["release_date"],
+        }
+    return {"mod_version": target, "source_ref": source, "release_date": released_on}
+
+
+def prepare(mod, engine, target, released_on, kind="factorio"):
     """Stage the version bump before testing; identical input yields identical files."""
     version(engine)
     target_version = version(target)
@@ -156,10 +195,19 @@ def prepare(mod, engine, target, released_on):
         raise ValueError("Automatic releases must increment exactly one mod patch")
     info["version"] = target
     path.write_text(json.dumps(info, indent=2) + "\n")
+    if kind == "main":
+        # State-only commits may land while CI runs; they must not change the
+        # candidate's notes. Commit subjects are data, never shell commands.
+        change = subprocess.check_output(
+            ["git", "log", "-1", "--format=%s", "--", ".",
+             ":!.github/factorio-releases.json"], text=True,
+        ).strip()
+    else:
+        change = f"Compatibility release for Factorio {engine} experimental."
     changelog = mod / "changelog.txt"
     changelog.write_text(
         "-" * 99 + f"\nVersion: {target}\nDate: {released_on}\n  Changes:\n"
-        f"    - Compatibility release for Factorio {engine} experimental.\n"
+        f"    - {change}\n"
         "    - Validated against an unmodified game with and without Space Age, including enemy, asteroid, acid and player gameplay regressions.\n"
         + changelog.read_text()
     )
@@ -168,7 +216,7 @@ def prepare(mod, engine, target, released_on):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("plan", "record", "ci", "fingerprint", "prepare")
+        "command", choices=("plan", "record", "ci", "fingerprint", "prepare", "main-release")
     )
     parser.add_argument("--state", default=".github/factorio-releases.json")
     parser.add_argument("--latest")
@@ -182,13 +230,16 @@ def main():
     parser.add_argument("--engine")
     parser.add_argument("--mod-version")
     parser.add_argument("--date")
+    parser.add_argument("--kind", choices=("factorio", "main"), default="factorio")
     args = parser.parse_args()
     path = Path(args.state)
     state = json.loads(path.read_text())
     if args.command == "fingerprint":
         print(fingerprint())
+    elif args.command == "main-release":
+        print(json.dumps(main_release(Path("no-quality-no-problem"), state, args.date)))
     elif args.command == "prepare":
-        prepare(Path("no-quality-no-problem"), args.engine, args.mod_version, args.date)
+        prepare(Path("no-quality-no-problem"), args.engine, args.mod_version, args.date, args.kind)
     elif args.command == "ci":
         # Test fixes against the newest observed engine even when its first
         # compatibility run failed, while retaining the oldest supported pin.

@@ -161,16 +161,28 @@ copy with the module cleanup deleted, each fail.
 
 ## Releasing
 
-Releases are automated. Tag the version and push:
+Push changes to `main`; CI handles the patch version, tag and publication. There is
+no manual version bump or tag step. CI stages the next patch and its changelog
+entry (from the latest change's commit subject), then builds and tests that package
+against the baseline and newest checked Factorio, with and without Space Age.
 
-```bash
-git tag v1.1.0 && git push --tags
-```
+After lint and every test pass, CI commits the prepared version and changelog, tags
+the release, and uploads the **exact tested ZIP** to the mod portal and GitHub. It
+also syncs the portal page from `portal.json` + `PORTAL.md`. Publication is a job in
+the same CI run, using the reusable [`release.yml`](.github/workflows/release.yml);
+it does not repeat game tests or rebuild the package.
 
-`.github/workflows/release.yml` then runs the full test suite against a real headless
-Factorio on the baseline and newest checked engine, with and without Space Age.
-Only if both versions and profiles pass, it uploads to the mod portal, syncs the page content from
-`portal.json` + `PORTAL.md`, and mirrors the zip as a GitHub release.
+Pull requests run checks without publishing. Tag pushes do not start CI. Automated
+version and bookkeeping commits use `GITHUB_TOKEN`, which [does not trigger another
+push workflow](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs),
+so releases cannot loop. If an upload fails, use **Re-run failed
+jobs** on that CI run: the saved tag and tested artifact are reused. Re-running the
+whole run also preserves its version and release date.
+
+Main CI and the hourly engine checks share a [release queue](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency#example-queueing-multiple-pending-runs).
+If new source changes
+reach `main` during validation, the older candidate cannot publish; the newer main
+run tests and releases those changes instead.
 
 ### New Factorio releases
 
@@ -190,7 +202,7 @@ Missed experimental releases are processed one per hourly run, in version order.
 Publication saves a commit and tag before uploading. A partial upload resumes
 that frozen version on the next check, without allocating another patch. Changes
 pushed while a candidate is being tested stop its publication and are tested on
-the next run. Automatic and manual releases share a queue to avoid collisions.
+the next run. Main CI and engine compatibility releases share a queue to avoid collisions.
 
 [`.github/factorio-releases.json`](.github/factorio-releases.json) records the exact
 source commit, mod version, result, publication status and workflow link. Published
