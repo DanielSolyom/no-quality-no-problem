@@ -40,7 +40,7 @@ class Publication(unittest.TestCase):
                     "name": "no-quality-no-problem",
                     "version": "1.0.4",
                     "factorio_version": "2.1",
-                    "dependencies": ["quality >= 2.1.0", "? Better-Power-Armor-Grid"],
+                    "dependencies": ["quality >= 2.1.0", "? test-compatibility-mod"],
                 }
             )
             + "\n"
@@ -149,7 +149,7 @@ class Publication(unittest.TestCase):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         info = json.loads((self.repo / "no-quality-no-problem/info.json").read_text())
-        self.assertEqual(info["dependencies"], ["quality >= 2.1.0", "? Better-Power-Armor-Grid"])
+        self.assertEqual(info["dependencies"], ["quality >= 2.1.0", "? test-compatibility-mod"])
         self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
 
     def test_partial_github_upload_resumes_same_patch_and_tag(self):
