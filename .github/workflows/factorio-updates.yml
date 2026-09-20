@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       factorio:
-        description: 'Optional exact 2.1 version to retry, even if already checked'
+        description: 'Optional exact 2.1 experimental version to retry and release'
         required: false
         type: string
 
@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: factorio-release-check
+  group: mod-release
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +24,11 @@ jobs:
     timeout-minutes: 3
     outputs:
       versions: ${{ steps.plan.outputs.versions }}
+      engine: ${{ steps.plan.outputs.engine }}
+      test_versions: ${{ steps.plan.outputs.test_versions }}
+      mod_version: ${{ steps.plan.outputs.mod_version }}
+      source_ref: ${{ steps.plan.outputs.source_ref }}
+      release_date: ${{ steps.plan.outputs.release_date }}
       changed: ${{ steps.plan.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
@@ -36,15 +41,35 @@ jobs:
         env:
           FORCE_VERSION: ${{ inputs.factorio }}
         run: |
-          versions=$(python3 scripts/factorio-releases.py plan --latest /tmp/latest.json --history /tmp/history.json --force "$FORCE_VERSION")
-          echo "versions=$versions" >> "$GITHUB_OUTPUT"
-          if [ "$versions" = '[]' ]; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo 'No new supported Factorio releases. No downloads, tests or builds needed.' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-            echo "Factorio releases to validate: $versions" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 scripts/factorio-releases.py plan --latest /tmp/latest.json --history /tmp/history.json --force "$FORCE_VERSION" > /tmp/versions.json
+          python3 - <<'PYTHON'
+          import datetime, json, os, pathlib
+          versions = json.loads(pathlib.Path("/tmp/versions.json").read_text())
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              if not versions:
+                  output.write("changed=false\nversions=[]\n")
+              else:
+                  # Publish one engine release at a time, in order. Catch up
+                  # remaining versions on following hourly checks.
+                  engine = versions[0]
+                  state = json.loads(pathlib.Path(".github/factorio-releases.json").read_text())
+                  entry = state["checked"].get(engine, {})
+                  if entry.get("release_status") == "pending":
+                      mod_version = entry["mod_version"]
+                      source_ref = entry["release_ref"]
+                  else:
+                      info = json.loads(pathlib.Path("no-quality-no-problem/info.json").read_text())
+                      major, minor, patch = map(int, info["version"].split("."))
+                      mod_version = f"{major}.{minor}.{patch + 1}"
+                      source_ref = os.environ["GITHUB_SHA"]
+                  output.write(f"changed=true\nversions={json.dumps([engine])}\nengine={engine}\n")
+                  output.write(f"test_versions={json.dumps(list(dict.fromkeys([state['baseline_version'], engine])))}\n")
+                  output.write(f"mod_version={mod_version}\nsource_ref={source_ref}\n")
+                  output.write(f"release_date={datetime.datetime.now(datetime.timezone.utc).date()}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"Experimental releases awaiting validation/publication: {versions}\n" if versions
+                            else "No new experimental release. No engine download, tests, build or publication needed.\n")
+          PYTHON
 
   validate:
     needs: detect
@@ -52,14 +77,46 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        factorio: ${{ fromJSON(needs.detect.outputs.versions) }}
+        factorio: ${{ fromJSON(needs.detect.outputs.test_versions) }}
     uses: ./.github/workflows/validate.yml
     with:
       factorio: ${{ matrix.factorio }}
+      ref: ${{ needs.detect.outputs.source_ref }}
+      mod_version: ${{ needs.detect.outputs.mod_version }}
+      release_date: ${{ needs.detect.outputs.release_date }}
+      release_engine: ${{ needs.detect.outputs.engine }}
+
+  publish:
+    name: Publish the tested patch release
+    needs: [detect, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      FACTORIO_VERSION: ${{ needs.detect.outputs.engine }}
+      MOD_VERSION: ${{ needs.detect.outputs.mod_version }}
+      RELEASE_DATE: ${{ needs.detect.outputs.release_date }}
+      RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect.outputs.source_ref }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: factorio-${{ needs.detect.outputs.engine }}-space-age
+          path: /tmp/validated
+      - name: Commit, tag and publish the exact tested archive
+        env:
+          FACTORIO_API_KEY: ${{ secrets.FACTORIO_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-tested.sh "/tmp/validated/dist/no-quality-no-problem_$MOD_VERSION.zip"
 
   record:
     name: Remember the checked versions
-    needs: [detect, validate]
+    needs: [detect, validate, publish]
     if: always() && needs.detect.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -76,9 +133,13 @@ jobs:
       - name: Record pass or failure with its evidence
         env:
           VERSIONS: ${{ needs.detect.outputs.versions }}
+          PUBLISH_STATUS: ${{ needs.publish.result }}
+          VALIDATION_STATUS: ${{ needs.validate.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python3 scripts/factorio-releases.py record --versions "$VERSIONS" --reports /tmp/results --run-url "$RUN_URL"
+          extra=()
+          if [ "$PUBLISH_STATUS" = success ]; then extra+=(--published); fi
+          python3 scripts/factorio-releases.py record --versions "$VERSIONS" --reports /tmp/results --run-url "$RUN_URL" --validation-status "$VALIDATION_STATUS" "${extra[@]}"
           cat .github/factorio-releases.json >> "$GITHUB_STEP_SUMMARY"
       - name: Save the release check state
         run: |

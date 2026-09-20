@@ -76,7 +76,7 @@ scripts/ci-test.sh           data-stage + runtime test runner
 build.sh                     package a portal-ready zip
 publish.sh                   upload a release to the mod portal
 portal.json + PORTAL.md      the mod portal page content, versioned in git
-.github/workflows/           CI on every push, release on every tag
+.github/workflows/           CI, tagged releases and hourly experimental-release checks
 ```
 
 ## Development
@@ -151,19 +151,28 @@ release metadata **hourly, at minute 17**. The normal no-change run only checks 
 the repository and reads two small JSON indexes; it does not download Factorio or
 run tests. The update index also catches releases missed between hourly runs.
 
-Each new supported **2.1** release gets a fresh build and the same full validation
-used for tagged releases, with and without Space Age. The workflow archives the
-package, logs, JSON observations and pass/fail report as Actions artifacts named
-by engine version and profile (30-day retention). These are compatibility builds
-of the current mod version; publishing a new mod version uses the release tags above.
+Each new supported **2.1 experimental** release stages the next mod patch version
+and tests that package on both the baseline engine and the new engine, with and
+without Space Age. **When all tests pass, it automatically publishes that patch
+to the mod portal and GitHub.** The upload uses the tested archive. The workflow
+also archives the package, logs, JSON observations and pass/fail report as Actions
+artifacts named by engine version and profile (30-day retention).
+
+Missed experimental releases are processed one per hourly run, in version order.
+Publication saves a commit and tag before uploading. A partial upload resumes
+that frozen version on the next check, without allocating another patch. Changes
+pushed while a candidate is being tested stop its publication and are tested on
+the next run. Automatic and manual releases share a queue to avoid collisions.
 
 [`.github/factorio-releases.json`](.github/factorio-releases.json) records the exact
-source commit, mod version, result and workflow link. Both passed and failed
-versions are remembered, preventing expensive retries every hour. A failed run
-is never recorded as supported. Use **Actions → Check Factorio releases → Run
-workflow**, supplying the exact engine version, to retry after a fix. Ordinary
-pushes also test the newest observed engine, including a version that failed.
-New engine release lines require an explicit compatibility update.
+source commit, mod version, result, publication status and workflow link. Published
+versions are skipped. Failed validation is remembered and retried automatically
+when code, tests or release tooling change, avoiding expensive repeated failures
+every hour. A failed run never publishes a patch. Use **Actions → Check Factorio
+releases → Run workflow**, supplying the exact engine version, to force a retry
+(and publish a patch if it passes). Ordinary pushes also test the newest observed
+engine, including a version that failed. New engine release lines require an
+explicit compatibility update.
 
 Manual equivalents:
 

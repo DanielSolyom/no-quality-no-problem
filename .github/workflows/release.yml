@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mod-release
+  cancel-in-progress: false
+
 env:
   MOD_DIR: no-quality-no-problem
 

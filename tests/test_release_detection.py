@@ -14,7 +14,7 @@ class ReleaseDetection(unittest.TestCase):
     def setUp(self):
         self.state = {
             "minimum_version": "2.1.9",
-            "checked": {"2.1.9": {"status": "passed"}},
+            "checked": {"2.1.9": {"status": "passed", "release_status": "published"}},
         }
         self.latest = {
             "stable": {"headless": "2.0.77"},
@@ -38,6 +38,31 @@ class ReleaseDetection(unittest.TestCase):
     def test_duplicate_stable_and_experimental_is_built_once(self):
         self.latest["stable"]["headless"] = "2.1.12"
         self.assertEqual(self.plan().count("2.1.12"), 1)
+
+    def test_stable_release_does_not_advance_experimental_queue(self):
+        self.latest["stable"]["headless"] = "2.1.99"
+        self.assertNotIn("2.1.99", self.plan())
+
+    def test_partial_publication_is_resumed_first(self):
+        self.state["checked"]["2.1.12"] = {
+            "status": "passed",
+            "release_status": "pending",
+        }
+        self.assertEqual(self.plan()[0], "2.1.12")
+
+    def test_failure_retries_when_source_changes(self):
+        self.state["checked"]["2.1.12"] = {
+            "status": "failed",
+            "source_fingerprint": "before",
+        }
+        unchanged = releases.plan(
+            self.latest, self.history, self.state, "2.1", source="before"
+        )
+        changed = releases.plan(
+            self.latest, self.history, self.state, "2.1", source="after"
+        )
+        self.assertNotIn("2.1.12", unchanged)
+        self.assertIn("2.1.12", changed)
 
     def test_failure_is_recorded_without_repeating_expensive_jobs_hourly(self):
         for n in (10, 11, 12):
@@ -71,12 +96,40 @@ class ReleaseDetection(unittest.TestCase):
                 "profile": p,
                 "status": "success",
                 "source_commit": "abc",
+                "source_fingerprint": "same-content",
                 "mod_version": "1.0.4",
             }
             for p in ("quality", "space-age")
         ]
         result = releases.record(copy.deepcopy(self.state), ["2.1.12"], reports, "run")
         self.assertEqual(result["checked"]["2.1.12"]["status"], "passed")
+        # A failed baseline engine must block publication even if this new
+        # experimental engine passes both profiles.
+        result = releases.record(
+            copy.deepcopy(self.state),
+            ["2.1.12"],
+            reports,
+            "run",
+            validation_passed=False,
+        )
+        self.assertEqual(result["checked"]["2.1.12"]["status"], "failed")
+        with self.assertRaises(ValueError):
+            releases.record(
+                copy.deepcopy(self.state),
+                ["2.1.12"],
+                reports,
+                "run",
+                published=True,
+                validation_passed=False,
+            )
+        result = releases.record(
+            copy.deepcopy(self.state), ["2.1.12"], reports, "run", published=True
+        )
+        self.assertEqual(result["checked"]["2.1.12"]["release_status"], "published")
+        reports[1]["source_fingerprint"] = "different"
+        with self.assertRaises(ValueError):
+            releases.record(self.state, ["2.1.12"], reports, "run")
+        reports[1]["source_fingerprint"] = "same-content"
         reports[1]["status"] = "failure"
         result = releases.record(copy.deepcopy(self.state), ["2.1.12"], reports, "run")
         self.assertEqual(result["checked"]["2.1.12"]["status"], "failed")

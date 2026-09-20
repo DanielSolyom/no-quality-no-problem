@@ -83,17 +83,34 @@ The hourly detector uses Factorio's official
 The [Factorio download API documentation](https://wiki.factorio.com/Download_API)
 describes metadata polling rather than downloading the game to discover its version.
 
-The detector tracks both stable and experimental releases within the supported
-2.1 line and catches up missed versions numerically. A new release triggers the
-same packaged-mod validation as normal CI and tagged releases. Pass/fail state is
-stored in git with the source commit and workflow link; malformed responses or
-missing test evidence fail the job. Failed versions require a manual retry rather
-than consuming full engine-test runs every hour.
+The detector tracks experimental releases within the supported 2.1 line and
+catches up missed versions numerically, one release per hourly run. A new release
+stages the next mod patch version and changelog before packaging. The same
+candidate files are tested on the baseline engine and new experimental engine,
+each with and without Space Age. Only success across the entire matrix allows
+automatic publication to the mod portal and GitHub. A failed baseline engine
+blocks publication even if the new engine passes.
 
-The state commit uses `GITHUB_TOKEN`, whose pushes
+Pass/fail state is stored in git with the source commit, content fingerprint,
+mod version and workflow link; malformed responses or missing/inconsistent test
+evidence fail the job. Failed validation is retried when code, tests or tooling
+change, or when manually requested. Unchanged failures do not consume engine
+runs every hour. Published versions are skipped by subsequent hourly checks.
+
+The publisher verifies every file in the validated archive against the release
+source, checks the required Quality dependency, and aborts if another code change
+arrived while tests ran. It commits and tags the tested candidate as pending
+before uploading. A partial publication retries that same frozen version; the
+portal upload skips an already-published version and the GitHub mirror resumes
+independently. Local integration tests use a disposable git remote to exercise
+checkpoint recovery, concurrent code changes and mismatching archives.
+
+Automatic release and state commits use `GITHUB_TOKEN`, whose pushes
 [do not recursively trigger other push workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
-Compatibility builds are archived as Actions artifacts. Mod portal releases remain
-tag-triggered and require both profiles and both engine versions to pass.
+The hourly workflow therefore performs publication itself after validation,
+instead of relying on the new tag to launch another workflow. Manual tag releases
+remain available, with the same validation matrix and a shared publication queue.
+Packages and evidence are also archived as Actions artifacts for 30 days.
 
 ## Boundaries
 

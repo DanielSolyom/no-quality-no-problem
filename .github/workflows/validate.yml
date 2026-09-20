@@ -6,6 +6,18 @@ on:
       factorio:
         required: true
         type: string
+      ref:
+        type: string
+        default: ''
+      mod_version:
+        type: string
+        default: ''
+      release_date:
+        type: string
+        default: ''
+      release_engine:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -23,9 +35,24 @@ jobs:
       TEST_PROFILE: ${{ matrix.profile }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Stage automatic patch release
+        if: inputs.mod_version != ''
+        env:
+          MOD_VERSION: ${{ inputs.mod_version }}
+          RELEASE_DATE: ${{ inputs.release_date }}
+          RELEASE_ENGINE: ${{ inputs.release_engine }}
+        run: python3 scripts/factorio-releases.py prepare --engine "$RELEASE_ENGINE" --mod-version "$MOD_VERSION" --date "$RELEASE_DATE"
 
       - name: Validate version
         run: '[[ "$FACTORIO_VERSION" =~ ^2\.1\.[0-9]+$ ]]'
+
+      - name: Check validation and release tooling
+        run: |
+          python3 -m unittest discover -s tests -v
+          bash -n build.sh publish.sh scripts/*.sh
 
       - name: Cache Factorio headless
         id: cache
@@ -62,12 +89,13 @@ jobs:
         run: |
           mkdir -p .testrun/outcome
           python3 - <<'PY'
-          import json, os, pathlib
+          import json, os, pathlib, subprocess
           report = {
               "factorio_version": os.environ["FACTORIO_VERSION"],
               "profile": os.environ["TEST_PROFILE"],
               "status": os.environ["TEST_STATUS"],
-              "source_commit": os.environ["GITHUB_SHA"],
+              "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "source_fingerprint": subprocess.check_output(["python3", "scripts/factorio-releases.py", "fingerprint"], text=True).strip(),
               "mod_version": json.loads(pathlib.Path("no-quality-no-problem/info.json").read_text())["version"],
           }
           pathlib.Path(".testrun/outcome/result.json").write_text(json.dumps(report, indent=2) + "\n")

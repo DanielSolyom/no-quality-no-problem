@@ -15,7 +15,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y lua5.4 luarocks && sudo luarocks install luacheck
       - run: luacheck .
       - run: python3 -m unittest discover -s tests -v
-      - run: bash -n build.sh publish.sh scripts/ci-test.sh
+      - run: bash -n build.sh publish.sh scripts/*.sh
 
   versions:
     runs-on: ubuntu-latest

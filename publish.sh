@@ -7,6 +7,7 @@
 #   --first-publish   create the mod on the portal for the very first time
 #   --sync-details    also push portal.json (title/summary/description/tags/...)
 #   --check-key       verify the API key works, then exit (no upload)
+#   --zip PATH        publish an already-tested archive instead of rebuilding
 #   --target 2.0      build and upload the 2.0-targeted release instead of 2.1
 #
 # API key: https://factorio.com/profile -> API keys. Required "usages":
@@ -27,13 +28,14 @@ set -euo pipefail
 API="https://mods.factorio.com/api"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-first_publish=0; sync_details=0; check_key=0; target=""
+first_publish=0; sync_details=0; check_key=0; target=""; tested_zip=""
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --first-publish) first_publish=1 ;;
     --sync-details)  sync_details=1 ;;
     --check-key)     check_key=1 ;;
+    --zip)          tested_zip="${2:?--zip needs a path}"; shift ;;
     --target)        target="${2:?--target needs a value}"; shift ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) args+=("$1") ;;
@@ -60,9 +62,18 @@ if [ "$check_key" -eq 1 ]; then
 fi
 
 # build.sh prints the zip it produced; the 2.0 target gets its own version.
-zip=$("$root/build.sh" "$mod_dir" "$target")
+if [ -n "$tested_zip" ]; then
+  [ -z "$target" ] || { echo "--zip cannot be retargeted" >&2; exit 2; }
+  zip="$tested_zip"
+else
+  zip=$("$root/build.sh" "$mod_dir" "$target")
+fi
 [ -f "$zip" ] || { echo "build produced no zip" >&2; exit 1; }
 version=$(unzip -p "$zip" '*/info.json' | jq -r .version)
+if [ -n "$tested_zip" ]; then
+  test "$(unzip -p "$zip" '*/info.json' | jq -r .name)" = "$name"
+  test "$version" = "$(jq -r .version "$root/$mod_dir/info.json")"
+fi
 
 # The portal rejects zips containing executables (exe/bat/ps1/sh/py).
 if unzip -Z1 "$zip" | grep -qiE '\.(exe|bat|ps1|sh|py)$'; then
@@ -73,7 +84,7 @@ fi
 # runs when the release itself is already up (e.g. after a manual first upload).
 skip_upload=0
 if [ "$first_publish" -ne 1 ] \
-   && curl -fsS "$API/mods/$name/full" 2>/dev/null \
+   && curl -fsS "$API/mods/$name/full?release-check=$(date +%s)" 2>/dev/null \
       | jq -e --arg v "$version" '.releases[]? | select(.version == $v)' >/dev/null; then
   echo "version $version is already on the portal; skipping upload"
   skip_upload=1
