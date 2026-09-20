@@ -49,6 +49,7 @@ names and name prefixes that retain normal stats:
 Spitter and worm acid damage is corrected at the attacking entity, including the damage
 inherited by projectiles and lingering puddles. Shared player projectiles retain their bonuses.
 Nest acid clouds, demolisher ash clouds and enemy slowing/disruption effects are excluded too.
+Gradual slow effects preserve both their lifetime and their movement/vehicle recovery curves.
 Trees, rocks and ordinary natural plants already ignore quality health scaling.
 
 Factories, logistics (including belt splitters), player defences, characters, vehicles and
@@ -103,7 +104,10 @@ directory, so it never touches your real saves, mods or script output.
 | stage | what it checks |
 |---|---|
 | `data` | the mod loads, then every quality prototype is compared against a **baseline dump taken with the mod disabled** — level, hidden flag, severed chain, multipliers, module effects, technology unlocks |
-| `runtime` | checks assembler speed and accumulator capacity, then compares world health, real enemy attacks, acid/ash clouds, slowing effects, attack range, regeneration and player bonuses against an unmodified baseline; repeated with a custom quality tier and modded entities |
+| `runtime` | checks assembler speed and accumulator capacity, then compares world health, every enemy size, asteroid collisions on space platforms, acid/ash damage, hazard lifetimes, actual movement and vehicle slowing, repeated/overlapping acid, puddle escape, attack range, regeneration and player bonuses against an unmodified baseline; repeated with a custom quality tier and modded entities |
+
+The [exclusion audit](docs/quality-exclusions-audit.md) records the 1.0.2 acid slowdown
+defect, its correction and the full verification scope.
 
 The baseline comparison is deliberate: an assertion like "every quality has the highest level
 present" is self-referential and passes even on a mod that flattens everything to the *worst*

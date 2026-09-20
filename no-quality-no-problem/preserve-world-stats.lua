@@ -20,6 +20,30 @@ local function range_multiplier(quality)
   return quality.range_multiplier or math.min(1 + 0.1 * quality.level, 3)
 end
 
+local function preserve_sticker(prototype, stat_ratio)
+  local duration = prototype.duration_in_ticks
+  prototype.duration_in_ticks = math.max(1, math.floor(duration * stat_ratio))
+
+  -- The engine scales the lifetime with quality, but interpolates from/to
+  -- modifiers using the unscaled prototype duration. Shortening only that
+  -- duration extrapolates past the starting modifier: small acid becomes a
+  -- complete stop, and stronger acid can even give negative movement speed.
+  -- Preserve the slope against remaining ticks as well as the lifetime.
+  local duration_ratio = prototype.duration_in_ticks / duration
+  for field, default in pairs{
+    target_movement_modifier = 1, target_movement_max = -1,
+    vehicle_speed_modifier = 1, vehicle_speed_max = -1,
+    vehicle_friction_modifier = 1,
+  } do
+    local base = prototype[field] or default
+    local from = prototype[field .. "_from"] or base
+    local to = prototype[field .. "_to"] or base
+    if from ~= to then
+      prototype[field .. "_from"] = to + (from - to) * duration_ratio
+    end
+  end
+end
+
 return function(normal, best)
   -- Quality is shared globally, so merely skipping these prototypes would not
   -- exclude them. Offset the engine's new multipliers in their base stats.
@@ -126,7 +150,7 @@ return function(normal, best)
     elseif prototype.type == "sticker" then
       -- Enemy slow/disruption effects also gain duration from quality. The
       -- prototype requires whole ticks; round down for unusual modded tiers.
-      prototype.duration_in_ticks = math.max(1, math.floor(prototype.duration_in_ticks * stat_ratio))
+      preserve_sticker(prototype, stat_ratio)
     else
       prototype.max_health = (prototype.max_health or 10) * stat_ratio
       prototype.attack_parameters = preserve_attack(prototype.attack_parameters)

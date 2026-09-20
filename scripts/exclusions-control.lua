@@ -1,4 +1,6 @@
 -- Run unchanged with the mod disabled/enabled; compare the engine's results.
+local movement = require("movement")
+
 local function snapshot()
   helpers.write_file("exclusions.json", helpers.table_to_json(storage.results))
 end
@@ -22,9 +24,13 @@ local function arena(name)
 end
 
 script.on_init(function()
-  storage.results = {health = {}, inventories = {}, attractors = {}, stickers = {}, combat = {}, healing = {}}
+  storage.results = {
+    health = {}, inventories = {}, attractors = {}, stickers = {}, combat = {}, healing = {},
+    smoke_lifetimes = {}, fire_lifetimes = {},
+  }
   storage.targets = {}
   storage.healers = {}
+  storage.fires = {}
   local results = storage.results
   local best = prototypes.quality.normal
   for _, quality in pairs(prototypes.quality) do
@@ -54,28 +60,58 @@ script.on_init(function()
       }
     elseif p.type == "sticker" then
       results.stickers[name] = {normal = p.get_duration(), best = p.get_duration(best)}
+    elseif p.type == "smoke-with-trigger" then
+      local entity = assert(s.create_entity{
+        name = name, position = {0, 0}, force = "enemy", quality = name == "poison-cloud" and best or "normal",
+      })
+      results.smoke_lifetimes[name] = entity.time_to_live
+      entity.destroy()
     end
   end
 
   -- Each attacker gets its own surface, avoiding crossfire and spawned wrigglers
   -- disturbing other cases. Restore target health after each hit.
-  local attackers = {
-    "small-biter", "behemoth-biter", "small-spitter", "behemoth-spitter",
-    "small-worm-turret", "behemoth-worm-turret", "small-strafer-pentapod",
-    "small-stomper-pentapod", "small-demolisher",
-  }
-  if prototypes.entity["test-biter"] then attackers[#attackers + 1] = "test-biter" end
+  local attackers = {}
+  for name, prototype in pairs(prototypes.entity) do
+    if name ~= "dummy-spider-unit" and (prototype.type == "unit" or prototype.type == "spider-unit"
+      or prototype.type == "segmented-unit" or prototype.type == "turret") then
+      attackers[#attackers + 1] = name
+    end
+  end
+  table.sort(attackers)
   for _, name in ipairs(attackers) do
     local surface = arena(name)
     local target = assert(surface.create_entity{name = "character", position = {8, 0}, force = "player"})
+    target.character_health_bonus = 1000000
     local attacker = assert(surface.create_entity{name = name, position = {0, 0}, force = "enemy"})
     storage.targets[target.unit_number] = name
     results.combat[name] = {samples = {}}
     if attacker.commandable then
       attacker.commandable.set_command{type = defines.command.attack, target = target, distraction = defines.distraction.none}
-    elseif name == "small-demolisher" then
+    elseif attacker.type == "segmented-unit" then
       -- Provoke its revenge attack in addition to normal territorial behaviour.
       attacker.damage(1, "player", "physical", target, target)
+    end
+  end
+
+  -- Drive each asteroid into an identical chest. Use best quality in the
+  -- baseline too: collision damage is capped by the target's actual health.
+  for name, prototype in pairs(prototypes.entity) do
+    if prototype.type == "asteroid" then
+      -- Asteroids collide with structures on space platforms, not ground maps.
+      local platform = assert(game.forces.player.create_space_platform{
+        name = "impact-" .. name, planet = "nauvis", starter_pack = {name = "space-platform-starter-pack", quality = best},
+      })
+      platform.apply_starter_pack()
+      local surface = platform.surface
+      surface.request_to_generate_chunks({48, 0}, 1)
+      surface.force_generate_chunk_requests()
+      surface.set_tiles{{name = "space-platform-foundation", position = {48, 0}}}
+      local target = assert(surface.create_entity{name = "steel-chest", position = {48.5, 0.5}, force = "player", quality = best})
+      storage.targets[target.unit_number] = "impact-" .. name
+      results.combat["impact-" .. name] = {samples = {}}
+      local asteroid = assert(surface.create_entity{name = name, position = {32.5, 0.5}, force = "enemy"})
+      asteroid.set_movement({1, 0}, 0.2)
     end
   end
 
@@ -118,6 +154,22 @@ script.on_init(function()
     entity.health = entity.max_health / 2
     storage.healers[name] = {entity = entity, initial = entity.health}
   end
+
+  local fire_names = {}
+  for name, prototype in pairs(prototypes.entity) do
+    if prototype.type == "fire" and (name:find("acid-splash", 1, true)
+      or name == "fire-flame" or name == "crash-site-fire-flame") then
+      fire_names[#fire_names + 1] = name
+    end
+  end
+  table.sort(fire_names)
+  local surface = arena("fire-lifetimes")
+  for index, name in ipairs(fire_names) do
+    storage.fires[name] = assert(surface.create_entity{
+      name = name, position = {-40 + (index % 5) * 20, -40 + math.floor(index / 5) * 20}, force = "enemy",
+    })
+  end
+  movement.init(best)
   snapshot()
 end)
 
@@ -136,11 +188,17 @@ script.on_event(defines.events.on_entity_damaged, function(event)
 end)
 
 script.on_event(defines.events.on_tick, function(event)
+  movement.tick(event.tick)
+  for name, fire in pairs(storage.fires) do
+    if not fire.valid and not storage.results.fire_lifetimes[name] then
+      storage.results.fire_lifetimes[name] = event.tick
+    end
+  end
   if event.tick == 1 then
     for name, item in pairs(storage.healers) do
       assert(item.entity.valid, "healing subject disappeared: " .. name)
       storage.results.healing[name] = item.entity.health - item.initial
     end
   end
-  if event.tick == 1200 then snapshot() end
+  if event.tick == 2400 then snapshot() end
 end)

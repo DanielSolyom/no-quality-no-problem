@@ -251,6 +251,7 @@ stage_exclusions() {
       sc="$WORK/$env/data/scenarios/exclusions"
       mkdir -p "$sc"
       cp "$REPO/scripts/exclusions-control.lua" "$sc/control.lua"
+      cp "$REPO/scripts/exclusions-movement.lua" "$sc/movement.lua"
       if [ "$variant" = mythic ]; then
         fixture="$WORK/$env/mods/exclusions-fixture"
         mkdir -p "$fixture"
@@ -271,7 +272,7 @@ PY
       fi
       run_factorio "$env" "$WORK/$env-init.log" --scenario2map exclusions || { fail "$env init"; return; }
       run_factorio "$env" "$WORK/$env-combat.log" --benchmark "$WORK/$env/data/saves/exclusions.zip" \
-        --benchmark-ticks 1201 --benchmark-runs 1 || { fail "$env combat"; return; }
+        --benchmark-ticks 2401 --benchmark-runs 1 || { fail "$env combat"; return; }
     done
     if python3 "$REPO/scripts/check-exclusions.py" \
       "$WORK/exclusions-$variant-baseline/data/script-output/exclusions.json" \

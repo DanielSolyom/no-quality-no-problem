@@ -81,5 +81,30 @@ for name, amount in base["healing"].items():
     assert amount > 0, f"No healing observed for {name}"
     equal(mod["healing"][name], amount, f"{name} regeneration")
 assert len(base["healing"]) == 3
+assert len(base["smoke_lifetimes"]) >= 103, "Missing smoke lifetime cases"
+assert base["smoke_lifetimes"] == mod["smoke_lifetimes"], "Smoke lifetimes changed"
+assert len(base["fire_lifetimes"]) == 13, "Some puddles or fires did not expire"
+assert base["fire_lifetimes"] == mod["fire_lifetimes"], "Puddle/fire lifetimes changed"
+
+assert base["movement"].keys() == mod["movement"].keys(), "Movement case set changed"
+assert len(base["movement"]) >= 35, "Missing acid, vehicle, and player effect cases"
+for name, before in base["movement"].items():
+    after = mod["movement"][name]
+    assert len(before) == len(after) == 320, f"Incomplete movement trace: {name}"
+    for tick, (original, actual) in enumerate(zip(before, after)):
+        label = f"{name} tick {tick}"
+        equal(actual["speed"], original["speed"], f"{label} movement speed")
+        # Tiny float differences can round movement to an adjacent 1/256-tile
+        # position. Speed, effects and expiry still have to match each tick.
+        assert abs(actual["x"] - original["x"]) <= 0.02, f"{label}: different walking distance"
+        assert actual["stickers"] == original["stickers"], f"{label}: different effect lifetime"
+        for key, value in original["vehicle"].items():
+            equal(actual["vehicle"][key], value, f"{label} vehicle {key}")
+    if name.startswith("puddle/"):
+        assert any(row["stickers"] for row in before), f"Puddle did not affect character: {name}"
+        assert not before[-1]["stickers"], f"Baseline character did not escape puddle: {name}"
+        assert before[-1]["x"] > 5, f"Baseline character did not walk out: {name}"
+
 print(f"  checked {checked} world entities ({asteroids} asteroids), "
-      f"{len(base['combat'])} combat/range cases, regeneration, and player bonuses")
+      f"{len(base['combat'])} combat/range cases, {len(base['movement'])} movement traces, "
+      "regeneration, and player bonuses")

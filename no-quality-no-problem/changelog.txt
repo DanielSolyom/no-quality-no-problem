@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.3
+Date: 2026-09-20
+  Bugfixes:
+    - Fixed spitter, worm and stomper acid stopping or reversing movement instead of applying normal slowing effects.
+    - Preserved the gradual recovery of enemy slowing effects, including vehicle speed, friction and speed limits.
+  Changes:
+    - Expanded regression checks to measure actual movement, overlapping acid, repeated hits, puddle escape, all enemy sizes, asteroid collisions on space platforms and hazard lifetimes.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.2
 Date: 2026-09-20
   Bugfixes:
