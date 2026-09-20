@@ -10,10 +10,10 @@
 --   2. Hiding every quality (like the base game hides "normal") removes the
 --      quality UI: no quality badges, no quality selectors, no Factoriopedia
 --      entries.
---   3. Stripping the `quality` effect from all modules and hiding
---      quality-only modules/recipes/techs removes the mechanic itself.
+--   3. Strip the `quality` effect from all modules. Quality-only modules
+--      become inert and are hidden unless kept as crafting ingredients.
 --
--- Runs in data-final-fixes so it sees the final result of all other mods.
+-- Runs in data-final-fixes, after dependent mods have defined their recipes.
 
 local util = require("util") -- do not rely on another mod having loaded it first
 
@@ -75,62 +75,26 @@ for _, q in pairs(qualities) do
 end
 
 ------------------------------------------------------------------------------
--- 2. Remove the quality effect from all modules; hide quality-only modules
+-- 2. Retain useful crafting ingredients as ordinary items; remove quality effects
 ------------------------------------------------------------------------------
 
-local hidden_modules = {}
-for name, m in pairs(data.raw.module or {}) do
-  local e = m.effect
-  if e and e.quality then
-    e.quality = nil
-    -- Hide the module only if nothing useful remains (vanilla quality
-    -- modules keep only a speed penalty). Keeps modded hybrid modules alive.
-    local useful = (e.speed and e.speed > 0)
-      or (e.productivity and e.productivity > 0)
-      or (e.consumption and e.consumption < 0)
-      or (e.pollution and e.pollution < 0)
-    if not useful then
-      -- Nothing but a penalty would remain (vanilla quality modules are
-      -- quality + a speed malus). Make it inert rather than a trap for
-      -- leftover modules already installed in an existing save.
-      m.effect = {}
-      m.hidden = true
-      m.hidden_in_factoriopedia = true
-      hidden_modules[name] = true
-    end
-  end
-end
-
--- Hide recipes whose only results are hidden quality modules.
-local hidden_recipes = {}
-for name, r in pairs(data.raw.recipe or {}) do
-  local results = r.results
-  if results and #results > 0 then
-    local all_hidden = true
-    for _, res in ipairs(results) do
-      if not (res.type == "item" and hidden_modules[res.name]) then
-        all_hidden = false
-        break
-      end
-    end
-    if all_hidden then
-      r.hidden = true
-      r.hidden_in_factoriopedia = true
-      r.enabled = false
-      hidden_recipes[name] = true
-    end
-  end
-end
+local hidden_recipes, module_recipes = require("quality-module-ingredients")()
 
 ------------------------------------------------------------------------------
 -- 3. Clean the technology tree
 ------------------------------------------------------------------------------
 
-local hidden_techs = {}
+local hidden_techs, module_techs = {}, {}
 for tname, t in pairs(data.raw.technology or {}) do
   if t.effects then
     local kept, removed_any = {}, false
+    local has_module_unlock, has_other_effect = false, false
     for _, eff in ipairs(t.effects) do
+      if eff.type == "unlock-recipe" and module_recipes[eff.recipe] then
+        has_module_unlock = true
+      elseif eff.type ~= "unlock-quality" then
+        has_other_effect = true
+      end
       if eff.type == "unlock-quality"
         or (eff.type == "unlock-recipe" and hidden_recipes[eff.recipe]) then
         removed_any = true
@@ -138,6 +102,9 @@ for tname, t in pairs(data.raw.technology or {}) do
         kept[#kept + 1] = eff
       end
     end
+    -- Only these technologies switch between hidden and researchable. Mixed
+    -- technologies stay available in both modes and need no runtime reset.
+    if has_module_unlock and not has_other_effect then module_techs[tname] = true end
     if removed_any then
       t.effects = kept
       if #kept == 0 then -- tech existed only for quality: hide it
@@ -148,6 +115,12 @@ for tname, t in pairs(data.raw.technology or {}) do
     end
   end
 end
+
+data:extend({{
+  type = "mod-data",
+  name = "no-quality-no-problem-module-unlocks",
+  data = {recipes = module_recipes, hidden_recipes = hidden_recipes, technologies = module_techs},
+}})
 
 -- Splice hidden quality techs out of other techs' prerequisite chains.
 if next(hidden_techs) then

@@ -1,11 +1,18 @@
 """Validate flattened quality and world invariants against an unmodified dump."""
 
+import argparse
 import json
 import sys
 
-with open(sys.argv[1]) as stream:
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("baseline")
+parser.add_argument("modded")
+parser.add_argument("--kept-item", action="append", default=[])
+args = parser.parse_args()
+
+with open(args.baseline) as stream:
     base_raw = json.load(stream)
-with open(sys.argv[2]) as stream:
+with open(args.modded) as stream:
     mod_raw = json.load(stream)
 base = base_raw["quality"]
 mod = mod_raw["quality"]
@@ -54,16 +61,38 @@ q_modules = {
 }
 assert q_modules, "baseline has no quality modules -- is the quality mod enabled?"
 for n in sorted(q_modules):
-    m = mod_raw["module"][n]
-    eff = m.get("effect") or {}
-    if "quality" in eff:
-        bad.append(f"module {n} still has a quality effect")
-    # A module left with nothing but penalties must be hidden AND inert, so
-    # leftovers in an existing save are harmless rather than a trap.
-    if m.get("hidden") is True and eff:
-        bad.append(f"hidden module {n} still has effects {eff}")
-    if m.get("hidden") is not True and not eff:
-        bad.append(f"module {n} was emptied but left visible")
+    module = mod_raw.get("module", {}).get(n)
+    item = mod_raw.get("item", {}).get(n)
+    if module:
+        if "quality" in (module.get("effect") or {}):
+            bad.append(f"module {n} still has a quality effect")
+        if not module.get("effect"):
+            bad.append(f"inert module {n} was not converted to an ordinary item")
+    elif item:
+        if item.get("effect") or item.get("type") != "item":
+            bad.append(f"{n} is not an inert ordinary item")
+        for field in ("hidden", "hidden_in_factoriopedia"):
+            if bool(item.get(field)) != (n not in args.kept_item):
+                bad.append(f"{n}.{field} does not match expected recipe demand")
+    else:
+        bad.append(f"quality-bearing item {n} disappeared")
+
+for name in ("quality-module", "quality-module-2", "quality-module-3"):
+    recipe = mod_raw["recipe"][name]
+    tech = mod_raw["technology"][name]
+    if name in args.kept_item:
+        if recipe != base_raw["recipe"][name]:
+            bad.append(f"{name} recipe changed despite being kept for crafting")
+        original = base_raw["technology"][name]
+        expected = {
+            **original,
+            "effects": [e for e in original["effects"] if e["type"] != "unlock-quality"],
+        }
+        if tech != expected:
+            bad.append(f"{name} research changed beyond removing quality unlocks")
+    elif not (recipe.get("hidden") and recipe.get("enabled") is False
+              and tech.get("hidden") and tech.get("enabled") is False):
+        bad.append(f"unused {name} recipe/research is still available")
 
 # Speed modules are useful even though their original quality effect is
 # negative. Stripping that penalty must not hide them or reduce their speed.
@@ -174,7 +203,9 @@ if extra_lost:
         f"non-quality-module items lost their last visible recipe: {sorted(extra_lost)}"
     )
 for n, r in mod_raw.get("recipe", {}).items():
-    if r.get("hidden") is True:
+    if r.get("hidden") is True or n.endswith("-recycling"):
+        continue
+    if any("recycling" in c for c in r.get("categories", [r.get("category", "crafting")])):
         continue
     for ing in r.get("ingredients") or []:
         if ing.get("name") in lost:

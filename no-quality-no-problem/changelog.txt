@@ -1,4 +1,12 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.5
+Date: 2026-09-20
+  Features:
+    - Automatically keep quality modules needed by useful crafting recipes, including lower tiers required to make them. No configuration is needed.
+    - Quality-only modules become ordinary, effect-free items that cannot be installed in machines or beacons. Unused items, recipes and research stay hidden.
+    - Recycling, hidden recipes and quality-module upgrade chains alone do not keep quality modules available.
+    - Update affected recipe and research availability in existing saves when useful recipes are added or removed, preserving completed research.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.4
 Date: 2026-09-20
   Changes:

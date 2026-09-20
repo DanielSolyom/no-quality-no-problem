@@ -31,10 +31,22 @@ The mod runs in `data-final-fixes.lua` and:
    original normal-quality health, attack damage, attack range and relevant world-object stats;
 3. hides every quality (`hidden`, `draw_sprite_by_default = false`) — the same mechanism the
    base game already uses to hide `normal` — and severs the quality upgrade chain;
-4. strips the `quality` effect from every module, makes penalty-only quality modules inert
-   and hides them, hides their recipes, and removes quality technologies while splicing them
-   out of other technologies' prerequisites so the tech tree stays connected;
+4. strips the `quality` effect from every module and converts quality-only modules to ordinary
+   items; keeps the items and production chains needed by useful recipes, hides unused ones,
+   and removes unnecessary quality technologies while keeping the tech tree connected;
 5. removes the quality tips-and-tricks entries and hides the quality signal.
+
+### Quality modules as crafting ingredients
+
+When another mod uses quality modules as ingredients for useful products, the required
+modules remain available automatically. No setting is needed. They become **ordinary items**
+with no effects and cannot be installed in machines or beacons. Their original crafting
+costs and recipe-unlocking research are preserved, including lower tiers needed to make them.
+
+Recycling recipes and recipes that only make more quality modules do not trigger retention.
+Hidden recipes do not trigger it either. Without a useful consumer, quality modules and their
+research stay hidden. Quality tiers, badges, selectors and quality-unlocking effects remain
+disabled. Speed modules and useful hybrid modules retain their non-quality effects.
 
 ### Exclusion list
 
@@ -66,7 +78,9 @@ require a fractional prototype duration.
   and mod-added enemies and asteroids.
 * Speed modules keep working — vanilla speed modules carry a *negative* quality effect, and
   only that field is removed.
-* It is prototype-level only, so uninstalling restores the quality mechanic.
+* Quality stats are changed at the prototype level. A configuration-change handler updates
+  module recipe and research availability in existing saves when the mod set changes.
+  Uninstalling restores the quality mechanic.
 
 ## Repository layout
 
@@ -98,6 +112,15 @@ curl -fSL "https://factorio.com/get-download/2.1.17/headless/linux64" | tar -xJ
 FACTORIO_BIN=factorio/bin/x64/factorio scripts/ci-test.sh all
 ```
 
+To build and validate the actual ZIP with both Quality-only and Space Age profiles:
+
+```bash
+FACTORIO_BIN=factorio/bin/x64/factorio ./build.sh --test
+```
+
+CI and release builds use this command. A failed gameplay or compatibility check fails
+the build before publication. `TEST_PROFILE=quality` or `space-age` selects one profile.
+
 It runs every Factorio invocation against an isolated config, mod directory and write-data
 directory, so it never touches your real saves, mods or script output.
 
@@ -120,6 +143,11 @@ Use `TEST_PROFILE=quality` for Quality + Recycler without Space Age; the default
 `scripts/ci-test.sh player` and `scripts/ci-test.sh exclusions` run the focused
 gameplay suites. CI builds and unpacks the zip first, then tests its actual files
 and dependencies. Packaging preserves existing logs and cached engine downloads.
+
+The packaged build is also tested with and without recipes that need quality modules.
+`scripts/ci-test.sh modules` checks ordinary-item conversion, rejection from module slots,
+research unlocks, module production and equipment crafting, partial tier retention, recycling
+and upgrade-only loops, and existing saves when useful recipes are added or removed.
 
 The [exclusion audit](docs/quality-exclusions-audit.md) records the 1.0.2 acid slowdown
 defect, its correction and the full verification scope.

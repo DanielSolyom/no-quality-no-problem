@@ -2,12 +2,22 @@
 # Package the mod into a portal-ready zip: <name>_<version>.zip containing a
 # single top-level folder <name>_<version>/ (the layout the game expects).
 #
-#   ./build.sh [mod-dir] [target-factorio-version]
+#   ./build.sh [--test] [mod-dir] [target-factorio-version]
+#
+# --test validates the actual zip with FACTORIO_BIN, including module ingredients.
+# It tests both profiles unless TEST_PROFILE selects one. Evidence goes to WORK.
 #
 # The optional second argument retargets info.json to another major Factorio
 # version (patch digit +1 to keep versions unique). The normal release needs
 # no arguments.
 set -euo pipefail
+
+test_build=false
+if [ "${1:-}" = --test ]; then
+  test_build=true
+  shift
+  : "${FACTORIO_BIN:?set FACTORIO_BIN to test the packaged build}"
+fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mod_dir="${1:-no-quality-no-problem}"
@@ -54,11 +64,25 @@ p = '$stage/info.json'
 i = json.load(open(p))
 i['version'] = '$version'
 i['factorio_version'] = '$target_fv'
-i['dependencies'] = ['quality >= ${target_fv}.0']
+i['dependencies'] = ['quality >= ${target_fv}.0'] + [
+    dependency for dependency in i.get('dependencies', [])
+    if dependency.split()[0] != 'quality'
+]
 json.dump(i, open(p, 'w'), indent=2)
 open(p, 'a').write('\n')"
 fi
 
 (cd "$scratch" && zip -qr "$out" "${name}_${version}")
+
+if [ "$test_build" = true ]; then
+  mkdir -p "$scratch/validation"
+  unzip -q "$out" -d "$scratch/validation"
+  profiles=(quality space-age)
+  if [ -n "${TEST_PROFILE:-}" ]; then profiles=("$TEST_PROFILE"); fi
+  for profile in "${profiles[@]}"; do
+    MOD_ROOT="$scratch/validation/${name}_${version}" TEST_PROFILE="$profile" \
+      WORK="${WORK:-$root/.testrun/build}" "$root/scripts/ci-test.sh" all
+  done
+fi
 
 echo "$out"

@@ -3,6 +3,7 @@
 #
 #   ci-test.sh data       data-stage load + prototype assertions (vs. a baseline dump)
 #   ci-test.sh runtime    control-stage assertions and simulated enemy attacks
+#   ci-test.sh modules    inert module crafting, research and saved-game checks
 #   ci-test.sh all        both (default)
 #
 # Every Factorio invocation uses an isolated write-data directory and an explicit
@@ -63,6 +64,29 @@ JSON
     "$READ_DATA" "$env/data" > "$env/config.ini"
 }
 
+# Model third-party recipe changes without changing the packaged mod.
+set_module_fixture() {
+  local env=$WORK/$1 variant=$2 version=${3:-1.0.0}
+  local fixture=$env/mods/module-ingredients-fixture
+  mkdir -p "$fixture"
+  cat > "$fixture/info.json" <<JSON
+{"name":"module-ingredients-fixture","version":"$version","title":"Module ingredient test fixture",
+ "author":"Tests","factorio_version":"$TARGET_FV","dependencies":["quality", "? no-quality-no-problem"]}
+JSON
+  printf 'return "%s"\n' "$variant" > "$fixture/variant.lua"
+  cp "$REPO/scripts/modules-fixture.lua" "$fixture/data.lua"
+  python3 - "$env/mods/mod-list.json" <<'PYMOD'
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+if not any(m['name'] == 'module-ingredients-fixture' for m in d['mods']):
+    d['mods'].append({'name': 'module-ingredients-fixture', 'enabled': True})
+with open(p, 'w') as f:
+    json.dump(d, f)
+PYMOD
+}
+
 # run_factorio <env> <logfile> <args...>
 run_factorio() {
   local env=$WORK/$1 log=$2; shift 2
@@ -93,6 +117,84 @@ stage_data() {
     "$WORK/baseline/data/script-output/data-raw-dump.json" \
     "$WORK/modded/data/script-output/data-raw-dump.json" || FAILED=1
   [ $FAILED -eq 0 ] && pass "every quality prototype matches the baseline top quality and is hidden"
+
+  local variant mode env enabled
+  local -a kept
+  for variant in none low high; do
+    for mode in baseline modded; do
+      env="module-data-$variant-$mode"
+      enabled=false
+      [ "$mode" = modded ] && enabled=true
+      make_env "$env" "$enabled"
+      set_module_fixture "$env" "$variant"
+      run_factorio "$env" "$WORK/$env.log" --dump-data || { fail "$env data stage"; return; }
+    done
+    kept=()
+    if [ "$variant" != none ]; then
+      kept+=(--kept-item quality-module --kept-item nqnp-test-quality-module)
+    fi
+    if [ "$variant" = high ]; then kept+=(--kept-item quality-module-2 --kept-item quality-module-3); fi
+    if python3 "$REPO/scripts/check-data.py" "${kept[@]}" \
+      "$WORK/module-data-$variant-baseline/data/script-output/data-raw-dump.json" \
+      "$WORK/module-data-$variant-modded/data/script-output/data-raw-dump.json"; then
+      pass "$variant recipe demand: ordinary items, original costs, research and hidden unused tiers"
+    else
+      fail "$variant recipe demand"
+    fi
+  done
+}
+
+stage_modules() {
+  echo "== module ingredient compatibility ($TEST_PROFILE) =="
+  local mode env sc variant enabled
+  for mode in fresh partial upgrade install; do
+    env="modules-$mode"
+    enabled=true
+    [ "$mode" = install ] && enabled=false
+    make_env "$env" "$enabled"
+    variant=high
+    [ "$mode" = partial ] && variant=low
+    [ "$mode" = upgrade ] && variant=none
+    set_module_fixture "$env" "$variant"
+    sc="$WORK/$env/data/scenarios/modules-check"
+    mkdir -p "$sc"
+    cp "$REPO/scripts/modules-control.lua" "$sc/control.lua"
+    run_factorio "$env" "$WORK/$env-init.log" --scenario2map modules-check || { fail "$env init"; return; }
+    if [ "$mode" = upgrade ]; then set_module_fixture "$env" high 1.0.1; fi
+    if [ "$mode" = install ]; then
+      python3 - "$WORK/$env/mods/mod-list.json" "$MOD_NAME" <<'PYMOD'
+import json, sys
+p = sys.argv[1]
+with open(p) as f:
+    d = json.load(f)
+for m in d['mods']:
+    if m['name'] == sys.argv[2]:
+        m['enabled'] = True
+with open(p, 'w') as f:
+    json.dump(d, f)
+PYMOD
+    fi
+    run_factorio "$env" "$WORK/$env-gameplay.log" --benchmark "$WORK/$env/data/saves/modules-check.zip" \
+      --benchmark-ticks 2401 --benchmark-runs 1 || { fail "$env gameplay"; return; }
+    if grep -q 'MODULES CRAFTING PASSED' "$WORK/$env-gameplay.log"; then
+      pass "$mode save: research, ordinary items, module-slot rejection and equipment crafting"
+    else
+      fail "$mode save did not complete module crafting"
+    fi
+    if [[ "$mode" = upgrade || "$mode" = install ]] && ! grep -q 'MODULES EXISTING SAVE RESEARCH PASSED' "$WORK/$env-gameplay.log"; then
+      fail "$mode did not exercise saved research"
+    fi
+    if [ "$mode" = fresh ]; then
+      set_module_fixture "$env" none 1.0.1
+      run_factorio "$env" "$WORK/$env-removed.log" --benchmark "$WORK/$env/data/saves/modules-check.zip" \
+        --benchmark-ticks 1 --benchmark-runs 1 || { fail "removed consumer gameplay"; return; }
+      if grep -q 'MODULES REMOVED CONSUMER PASSED' "$WORK/$env-removed.log"; then
+        pass "removing useful recipes hides module items, recipes and research again"
+      else
+        fail "removed consumer did not exercise saved research"
+      fi
+    fi
+  done
 }
 
 stage_runtime() {
@@ -134,6 +236,7 @@ LUA
     fail "runtime assertions"
   fi
 
+  stage_modules
   stage_player
   if [ "$TEST_PROFILE" = space-age ]; then stage_exclusions; fi
 }
@@ -229,9 +332,10 @@ PY
 case "${1:-all}" in
   data)    stage_data ;;
   runtime) stage_runtime ;;
+  modules) stage_modules ;;
   player)  stage_player ;;
   exclusions) stage_exclusions ;;
   all)     stage_data; stage_runtime ;;
-  *)       echo "usage: $0 [data|runtime|player|exclusions|all]"; exit 2 ;;
+  *)       echo "usage: $0 [data|runtime|modules|player|exclusions|all]"; exit 2 ;;
 esac
 exit $FAILED

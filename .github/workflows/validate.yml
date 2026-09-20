@@ -68,19 +68,12 @@ jobs:
           mkdir -p "$HOME/factorio-$FACTORIO_VERSION"
           tar -xJf /tmp/factorio.tar.xz -C "$HOME/factorio-$FACTORIO_VERSION" --strip-components=1
 
-      - name: Build and unpack the actual release package
-        run: |
-          ./build.sh
-          mkdir -p .testrun/package
-          unzip -q dist/no-quality-no-problem_*.zip -d .testrun/package
-          echo "MOD_ROOT=$PWD/.testrun/package/no-quality-no-problem_$(jq -r .version no-quality-no-problem/info.json)" >> "$GITHUB_ENV"
-
-      - name: Test packaged mod against an unmodified baseline
+      - name: Build and test the package, including automatic module ingredients
         run: |
           export FACTORIO_BIN="$HOME/factorio-$FACTORIO_VERSION/bin/x64/factorio"
           "$FACTORIO_BIN" --version
           export WORK="$PWD/.testrun/$FACTORIO_VERSION"
-          scripts/ci-test.sh all
+          ./build.sh --test
 
       - name: Record test outcome
         if: always()

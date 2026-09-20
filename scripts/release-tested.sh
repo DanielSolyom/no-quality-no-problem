@@ -36,7 +36,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     if files != expected:
         raise SystemExit("Validated archive does not match the release source")
     info = json.loads(files[prefix + "info.json"])
-    assert info["dependencies"] == ["quality >= 2.1.0"], "Quality dependency changed"
+    assert "quality >= 2.1.0" in info["dependencies"], "Required Quality dependency changed"
 PY
 
 if ! git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
