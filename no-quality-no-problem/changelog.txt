@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.6
+Date: 2026-09-20
+  Changes:
+    - Remove the optional Better Power Armor Grid dependency
+    - Validated against an unmodified game with and without Space Age, including enemy, asteroid, acid and player gameplay regressions.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.5
 Date: 2026-09-20
   Features:

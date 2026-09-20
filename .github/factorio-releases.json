@@ -3,12 +3,21 @@
   "checked": {
     "2.1.19": {
       "mod_version": "1.0.4",
-      "release_status": "published",
       "release_ref": "v1.0.4",
+      "release_status": "published",
       "run_url": "https://github.com/DanielSolyom/no-quality-no-problem/actions/runs/35505366728",
       "source_commit": "c307dc7e60628dd5f85b0c60f18cb96c93a50f04",
       "status": "passed"
     }
+  },
+  "main_release": {
+    "mod_version": "1.0.6",
+    "release_date": "2026-09-20",
+    "release_ref": "v1.0.6",
+    "run_url": "https://github.com/DanielSolyom/no-quality-no-problem/actions/runs/35509359077",
+    "source_commit": "ba5a8c3a9a21e1333ff76689dd1653c53619b0f5",
+    "source_fingerprint": "8ad5205a04df87156645eb557c08c62b92f673804b0adbea28764cb1f33a3952",
+    "status": "passed"
   },
   "minimum_version": "2.1.19"
 }
