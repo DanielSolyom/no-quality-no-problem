@@ -12,7 +12,7 @@
     "2.1.20": {
       "mod_version": "1.0.8",
       "release_ref": "v1.0.8",
-      "release_status": "pending",
+      "release_status": "published",
       "run_url": "https://github.com/DanielSolyom/no-quality-no-problem/actions/runs/35725615869",
       "source_commit": "41c1ebcca48c8bf05056fc3faeea6a362232f63e",
       "source_fingerprint": "8ad5205a04df87156645eb557c08c62b92f673804b0adbea28764cb1f33a3952",
