@@ -21,6 +21,9 @@ on:
       release_kind:
         type: string
         default: factorio
+      release_channel:
+        type: string
+        default: experimental
 
 permissions:
   contents: read
@@ -36,6 +39,7 @@ jobs:
     env:
       FACTORIO_VERSION: ${{ inputs.factorio }}
       TEST_PROFILE: ${{ matrix.profile }}
+      RELEASE_CHANNEL: ${{ inputs.release_channel }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,7 +53,7 @@ jobs:
           RELEASE_DATE: ${{ inputs.release_date }}
           RELEASE_ENGINE: ${{ inputs.release_engine }}
           RELEASE_KIND: ${{ inputs.release_kind }}
-        run: python3 scripts/factorio-releases.py prepare --engine "$RELEASE_ENGINE" --mod-version "$MOD_VERSION" --date "$RELEASE_DATE" --kind "$RELEASE_KIND"
+        run: python3 scripts/factorio-releases.py prepare --engine "$RELEASE_ENGINE" --mod-version "$MOD_VERSION" --date "$RELEASE_DATE" --kind "$RELEASE_KIND" --channel "$RELEASE_CHANNEL"
 
       - name: Validate version
         run: '[[ "$FACTORIO_VERSION" =~ ^2\.1\.[0-9]+$ ]]'
@@ -95,6 +99,7 @@ jobs:
               "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
               "source_fingerprint": subprocess.check_output(["python3", "scripts/factorio-releases.py", "fingerprint"], text=True).strip(),
               "mod_version": json.loads(pathlib.Path("no-quality-no-problem/info.json").read_text())["version"],
+              "release_channel": os.environ["RELEASE_CHANNEL"],
           }
           pathlib.Path(".testrun/outcome/result.json").write_text(json.dumps(report, indent=2) + "\n")
           PY

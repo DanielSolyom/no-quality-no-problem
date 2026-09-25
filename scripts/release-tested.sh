@@ -5,7 +5,9 @@ set -euo pipefail
 archive=${1:?path to the validated archive}
 : "${FACTORIO_VERSION:?}" "${MOD_VERSION:?}" "${RELEASE_DATE:?}" "${RELEASE_BRANCH:?}" "${RUN_URL:?}"
 export RELEASE_KIND=${RELEASE_KIND:-factorio}
+export RELEASE_CHANNEL=${RELEASE_CHANNEL:-experimental}
 [[ "$RELEASE_KIND" = factorio || "$RELEASE_KIND" = main ]]
+[[ "$RELEASE_CHANNEL" = experimental || "$RELEASE_CHANNEL" = stable ]]
 [[ "$FACTORIO_VERSION" =~ ^2\.1\.[0-9]+$ ]]
 [[ "$MOD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 tag="v$MOD_VERSION"
@@ -18,20 +20,20 @@ export SOURCE_COMMIT
 
 if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
   # Re-running just the publication job checks out the original source again.
-  # Only this source's checkpoint may be reused; an unrelated tag is a conflict.
-  if [ "$SOURCE_COMMIT" != "$(git rev-parse "$tag^{commit}")" ]; then
-    python3 - "$tag" <<'PY'
+  # Verify the channel even when a retry already checked out the frozen tag.
+  python3 - "$tag" <<'PY'
 import json, os, subprocess, sys
 state = json.loads(subprocess.check_output(["git", "show", f"{sys.argv[1]}:.github/factorio-releases.json"], text=True))
+checkpoint = subprocess.check_output(["git", "rev-parse", sys.argv[1] + "^{commit}"], text=True).strip()
+key = "stable_checked" if os.environ["RELEASE_CHANNEL"] == "stable" else "checked"
 entry = (state.get("main_release", {}) if os.environ["RELEASE_KIND"] == "main"
-         else state["checked"].get(os.environ["FACTORIO_VERSION"], {}))
-if (entry.get("source_commit") != os.environ["SOURCE_COMMIT"]
+         else state.get(key, {}).get(os.environ["FACTORIO_VERSION"], {}))
+if (os.environ["SOURCE_COMMIT"] not in {entry.get("source_commit"), checkpoint}
         or entry.get("mod_version") != os.environ["MOD_VERSION"]
         or entry.get("release_date") != os.environ["RELEASE_DATE"]):
     raise SystemExit("Existing tag belongs to a different release")
 PY
-    git checkout --detach "$tag"
-  fi
+  git checkout --detach "$tag"
 else
   # Do not include code pushed while tests were running. State-only commits do
   # not change the tested package and can be included in the fast-forward.
@@ -39,7 +41,7 @@ else
   git checkout --detach "origin/$RELEASE_BRANCH"
 fi
 
-python3 scripts/factorio-releases.py prepare --engine "$FACTORIO_VERSION" --mod-version "$MOD_VERSION" --date "$RELEASE_DATE" --kind "$RELEASE_KIND"
+python3 scripts/factorio-releases.py prepare --engine "$FACTORIO_VERSION" --mod-version "$MOD_VERSION" --date "$RELEASE_DATE" --kind "$RELEASE_KIND" --channel "$RELEASE_CHANNEL"
 
 # Check every archived file, not just info.json: publication must use exactly the
 # package that passed the engine scenarios. No rebuilding after validation.
@@ -75,13 +77,14 @@ if os.environ["RELEASE_KIND"] == "main":
     state["main_release"] = entry
 else:
     entry["release_status"] = "pending"
-    state["checked"][os.environ["FACTORIO_VERSION"]] = entry
+    key = "stable_checked" if os.environ["RELEASE_CHANNEL"] == "stable" else "checked"
+    state.setdefault(key, {})[os.environ["FACTORIO_VERSION"]] = entry
 path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 PY
   git add no-quality-no-problem/info.json no-quality-no-problem/changelog.txt .github/factorio-releases.json
   message="Release $MOD_VERSION"
   if [ "$RELEASE_KIND" = factorio ]; then
-    message+=" for Factorio $FACTORIO_VERSION"
+    message+=" for Factorio $FACTORIO_VERSION $RELEASE_CHANNEL"
   fi
   git commit -m "$message"
   git tag "$tag"
@@ -97,7 +100,7 @@ awk -v v="$MOD_VERSION" '
   p' no-quality-no-problem/changelog.txt > "$notes"
 printf '\nValidation: %s\n\nMod portal: https://mods.factorio.com/mod/no-quality-no-problem\n' "$RUN_URL" >> "$notes"
 title="$tag"
-if [ "$RELEASE_KIND" = factorio ]; then title+=" — Factorio $FACTORIO_VERSION"; fi
+if [ "$RELEASE_KIND" = factorio ]; then title+=" — Factorio $FACTORIO_VERSION $RELEASE_CHANNEL"; fi
 if gh release view "$tag" >/dev/null 2>&1; then
   gh release upload "$tag" "$archive" --clobber
 else

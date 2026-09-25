@@ -13,6 +13,11 @@ from datetime import date
 from pathlib import Path
 
 
+# Keep existing experimental checkpoints readable; stable promotions have their
+# own ledger so the same engine can receive a second compatibility release.
+CHECK_KEYS = {"experimental": "checked", "stable": "stable_checked"}
+
+
 def version(value):
     if not isinstance(value, str) or not re.fullmatch(r"\d+\.\d+\.\d+", value):
         raise ValueError(f"Invalid Factorio version: {value!r}")
@@ -51,16 +56,17 @@ def fingerprint():
     return digest.hexdigest()
 
 
-def plan(latest, history, state, line, force=None, source=None):
+def plan(latest, history, state, line, force=None, source=None, channel="experimental"):
     minimum = version(state["minimum_version"])
     if force:
         version(force)
         if not force.startswith(line + "."):
             raise ValueError(f"{force} is outside the supported {line} release line")
-        return [force]
+        return [{"version": force, "channel": channel}]
     # Stable can advance independently; experimental may be absent when there
     # is no experimental build. Either index can expose a new version first.
-    available = {latest["stable"]["headless"]}
+    stable = {latest["stable"]["headless"]}
+    available = set(stable)
     if "headless" in latest.get("experimental", {}):
         available.add(latest["experimental"]["headless"])
     # The update index catches releases missed during delayed hourly runs,
@@ -72,17 +78,32 @@ def plan(latest, history, state, line, force=None, source=None):
         for field in ("from", "to", "stable", "experimental"):
             if field in entry:
                 available.add(entry[field])
+                if field == "stable":
+                    stable.add(entry[field])
     for candidate in available:
         version(candidate)
-    # A partially published release must finish even if it leaves the indexes.
-    available.update(
-        candidate for candidate, entry in state["checked"].items()
-        if entry.get("release_status") == "pending"
+    experimental_checks = state["checked"]
+    stable_checks = state.get("stable_checked", {})
+    candidates = {(candidate, "stable") for candidate in stable}
+    candidates.update(
+        (candidate, "experimental") for candidate in available
+        if (candidate not in stable and candidate not in stable_checks)
+        or candidate in experimental_checks
     )
+    # Keep incomplete releases after they leave the indexes, including failures
+    # that become eligible for a retry after a fix. Pending uploads finish first.
+    for release_channel, key in CHECK_KEYS.items():
+        candidates.update(
+            (candidate, release_channel) for candidate, entry in state.get(key, {}).items()
+            if entry.get("release_status") != "published"
+        )
 
-    def needs_check(candidate):
-        previous = state["checked"].get(candidate)
-        if previous is None:
+    def previous_check(candidate, release_channel):
+        return state.get(CHECK_KEYS[release_channel], {}).get(candidate, {})
+
+    def needs_check(candidate, release_channel):
+        previous = previous_check(candidate, release_channel)
+        if not previous:
             return True
         if previous.get("release_status") == "published":
             return False
@@ -90,22 +111,26 @@ def plan(latest, history, state, line, force=None, source=None):
             return source is not None and previous.get("source_fingerprint") != source
         return True  # Tests passed, but publication has not finished.
 
-    return sorted(
+    ordered = sorted(
         (
-            candidate
-            for candidate in available
+            (candidate, release_channel)
+            for candidate, release_channel in candidates
             if candidate.startswith(line + ".")
             and version(candidate) >= minimum
-            and needs_check(candidate)
+            and needs_check(candidate, release_channel)
         ),
-        key=lambda candidate: (
-            state["checked"].get(candidate, {}).get("release_status") != "pending",
-            version(candidate),
+        key=lambda event: (
+            previous_check(*event).get("release_status") != "pending",
+            version(event[0]), event[1],
         ),
     )
+    return [{"version": candidate, "channel": release_channel}
+            for candidate, release_channel in ordered]
 
 
-def record(state, versions, reports, run_url, published=False, validation_passed=True):
+def record(state, versions, reports, run_url, published=False, validation_passed=True,
+           channel="experimental"):
+    checked = state.setdefault(CHECK_KEYS[channel], {})
     for engine in versions:
         version(engine)
         results = [report for report in reports if report["factorio_version"] == engine]
@@ -120,10 +145,12 @@ def record(state, versions, reports, run_url, published=False, validation_passed
             raise ValueError(f"Different mod versions tested for Factorio {engine}")
         if len({r["source_fingerprint"] for r in results}) != 1:
             raise ValueError(f"Different source files tested for Factorio {engine}")
+        if any(r.get("release_channel", "experimental") != channel for r in results):
+            raise ValueError(f"Different release channel tested for Factorio {engine}")
         if any(r["status"] not in {"success", "failure", "cancelled"} for r in results):
             raise ValueError(f"Invalid test status for Factorio {engine}")
-        previous = state["checked"].get(engine, {})
-        state["checked"][engine] = {
+        previous = checked.get(engine, {})
+        checked[engine] = {
             "status": "passed"
             if validation_passed and all(r["status"] == "success" for r in results)
             else "failed",
@@ -135,12 +162,12 @@ def record(state, versions, reports, run_url, published=False, validation_passed
         if previous.get("mod_version") == results[0]["mod_version"]:
             for field in ("release_status", "release_ref", "release_date"):
                 if field in previous:
-                    state["checked"][engine][field] = previous[field]
+                    checked[engine][field] = previous[field]
         if published:
-            if state["checked"][engine]["status"] != "passed":
+            if checked[engine]["status"] != "passed":
                 raise ValueError("Cannot publish a failed validation")
-            state["checked"][engine]["release_status"] = "published"
-            state["checked"][engine]["release_ref"] = "v" + results[0]["mod_version"]
+            checked[engine]["release_status"] = "published"
+            checked[engine]["release_ref"] = "v" + results[0]["mod_version"]
     return state
 
 
@@ -183,7 +210,7 @@ def main_release(mod, state, released_on):
     return {"mod_version": target, "source_ref": source, "release_date": released_on}
 
 
-def prepare(mod, engine, target, released_on, kind="factorio"):
+def prepare(mod, engine, target, released_on, kind="factorio", channel="experimental"):
     """Stage the version bump before testing; identical input yields identical files."""
     version(engine)
     target_version = version(target)
@@ -209,7 +236,7 @@ def prepare(mod, engine, target, released_on, kind="factorio"):
              ":!.github/factorio-releases.json"], text=True,
         ).strip()
     else:
-        change = f"Compatibility release for Factorio {engine}."
+        change = f"Compatibility release for Factorio {engine} ({channel})."
     changelog = mod / "changelog.txt"
     changelog.write_text(
         "-" * 99 + f"\nVersion: {target}\nDate: {released_on}\n  Changes:\n"
@@ -217,6 +244,13 @@ def prepare(mod, engine, target, released_on, kind="factorio"):
         "    - Validated against an unmodified game with and without Space Age, including enemy, asteroid, acid and player gameplay regressions.\n"
         + changelog.read_text()
     )
+
+
+def ci_versions(state):
+    """Validate only the newest tracked engine, including previously failed builds."""
+    newest = max([state["minimum_version"], *state["checked"],
+                  *state.get("stable_checked", {})], key=version)
+    return [newest]
 
 
 def main():
@@ -237,6 +271,7 @@ def main():
     parser.add_argument("--mod-version")
     parser.add_argument("--date")
     parser.add_argument("--kind", choices=("factorio", "main"), default="factorio")
+    parser.add_argument("--channel", choices=tuple(CHECK_KEYS), default="experimental")
     args = parser.parse_args()
     path = Path(args.state)
     state = json.loads(path.read_text())
@@ -245,12 +280,10 @@ def main():
     elif args.command == "main-release":
         print(json.dumps(main_release(Path("no-quality-no-problem"), state, args.date)))
     elif args.command == "prepare":
-        prepare(Path("no-quality-no-problem"), args.engine, args.mod_version, args.date, args.kind)
+        prepare(Path("no-quality-no-problem"), args.engine, args.mod_version, args.date,
+                args.kind, args.channel)
     elif args.command == "ci":
-        # Test fixes against the newest observed engine even when its first
-        # compatibility run failed, while retaining the oldest supported pin.
-        newest = max([state["minimum_version"], *state["checked"]], key=version)
-        print(json.dumps(sorted({state["baseline_version"], newest}, key=version)))
+        print(json.dumps(ci_versions(state)))
     elif args.command == "plan":
         line = json.loads(Path("no-quality-no-problem/info.json").read_text())[
             "factorio_version"
@@ -262,6 +295,7 @@ def main():
             line,
             args.force,
             fingerprint(),
+            args.channel,
         )
         print(json.dumps(versions))
     else:
@@ -275,6 +309,7 @@ def main():
             args.run_url,
             args.published,
             args.validation_status == "success",
+            args.channel,
         )
         path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 

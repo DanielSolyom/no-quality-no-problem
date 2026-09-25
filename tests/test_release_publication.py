@@ -77,19 +77,25 @@ class Publication(unittest.TestCase):
             "PATH": str(tools) + os.pathsep + os.environ["PATH"],
             "FACTORIO_VERSION": "2.1.20",
             "RELEASE_KIND": "factorio",
+            "RELEASE_CHANNEL": "experimental",
             "MOD_VERSION": "1.0.5",
             "RELEASE_DATE": "2026-09-20",
             "RELEASE_BRANCH": "main",
             "RUN_URL": "https://example.invalid/test-run",
             "CALL_LOG": str(self.root / "calls"),
         }
-        candidate = self.root / "candidate"
+        self.factorio_candidate("2.1.20", "1.0.5")
+
+    def factorio_candidate(self, engine, target, channel="experimental"):
+        self.env.update(FACTORIO_VERSION=engine, MOD_VERSION=target, RELEASE_CHANNEL=channel)
+        mod = self.repo / "no-quality-no-problem"
+        candidate = self.root / f"candidate-{target}-{channel}"
         shutil.copytree(mod, candidate)
-        release_tools.prepare(candidate, "2.1.20", "1.0.5", "2026-09-20")
-        self.archive = self.root / "no-quality-no-problem_1.0.5.zip"
+        release_tools.prepare(candidate, engine, target, "2026-09-20", channel=channel)
+        self.archive = self.root / f"no-quality-no-problem_{target}.zip"
         with zipfile.ZipFile(self.archive, "w") as archive:
             for path in candidate.iterdir():
-                archive.write(path, "no-quality-no-problem_1.0.5/" + path.name)
+                archive.write(path, f"no-quality-no-problem_{target}/" + path.name)
 
     def git(self, *args):
         return subprocess.check_output(
@@ -162,15 +168,8 @@ class Publication(unittest.TestCase):
         first = self.publish()
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         first_state = json.loads((self.repo / ".github/factorio-releases.json").read_text())
-        self.env.update(FACTORIO_VERSION="2.1.21", MOD_VERSION="1.0.6")
+        self.factorio_candidate("2.1.21", "1.0.6")
         mod = self.repo / "no-quality-no-problem"
-        candidate = self.root / "next-candidate"
-        shutil.copytree(mod, candidate)
-        release_tools.prepare(candidate, "2.1.21", "1.0.6", "2026-09-20")
-        self.archive = self.root / "no-quality-no-problem_1.0.6.zip"
-        with zipfile.ZipFile(self.archive, "w") as archive:
-            for path in candidate.iterdir():
-                archive.write(path, "no-quality-no-problem_1.0.6/" + path.name)
         second = self.publish()
         self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
         state = json.loads((self.repo / ".github/factorio-releases.json").read_text())
@@ -179,8 +178,48 @@ class Publication(unittest.TestCase):
         self.assertEqual(state["checked"]["2.1.20"], first_state["checked"]["2.1.20"])
         self.assertEqual((mod / "data-final-fixes.lua").read_bytes(), gameplay)
         notes = (mod / "changelog.txt").read_text()
-        self.assertIn("Compatibility release for Factorio 2.1.21.", notes)
-        self.assertNotIn("experimental", notes)
+        self.assertIn("Compatibility release for Factorio 2.1.21 (experimental).", notes)
+        self.assertEqual((self.root / "calls").read_text().splitlines(),
+                         ["portal", "github", "portal", "github"])
+
+    def test_stable_promotion_publishes_a_new_patch_for_the_same_engine(self):
+        source = self.git("rev-parse", "HEAD")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        path = self.repo / ".github/factorio-releases.json"
+        state = json.loads(path.read_text())
+        reports = [{
+            "factorio_version": "2.1.20", "profile": profile, "status": "success",
+            "source_commit": source, "source_fingerprint": "unchanged",
+            "mod_version": "1.0.5", "release_channel": "experimental",
+        } for profile in ("quality", "space-age")]
+        release_tools.record(state, ["2.1.20"], reports, "experimental-run", published=True)
+        experimental = state["checked"]["2.1.20"].copy()
+        path.write_text(json.dumps(state))
+        self.git("add", ".")
+        self.git("commit", "-m", "Record experimental publication")
+        self.git("push", "origin", "HEAD:main")
+        latest = {channel: {"headless": "2.1.20"} for channel in ("stable", "experimental")}
+        history = {"core-linux_headless64": [{"stable": "2.1.20", "experimental": "2.1.20"}]}
+        self.assertEqual(release_tools.plan(latest, history, state, "2.1", source="unchanged"),
+                         [{"version": "2.1.20", "channel": "stable"}])
+        self.factorio_candidate("2.1.20", "1.0.6", channel="stable")
+        source = self.git("rev-parse", "HEAD")
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        state = json.loads(path.read_text())
+        self.assertEqual(state["checked"]["2.1.20"], experimental)
+        self.assertEqual(state["stable_checked"]["2.1.20"]["release_ref"], "v1.0.6")
+        self.assertEqual(state["stable_checked"]["2.1.20"]["release_status"], "pending")
+        for report in reports:
+            report.update(release_channel="stable", mod_version="1.0.6", source_commit=source)
+        release_tools.record(state, ["2.1.20"], reports, "stable-run", published=True, channel="stable")
+        self.assertEqual(release_tools.plan(latest, history, state, "2.1", source="unchanged"), [])
+        self.assertEqual(self.git("tag", "--list"), "v1.0.5\nv1.0.6")
+        self.assertIn("Factorio 2.1.20 stable", self.git("log", "-1", "--format=%s"))
+        mod = self.repo / "no-quality-no-problem"
+        self.assertIn("Compatibility release for Factorio 2.1.20 (stable).", (mod / "changelog.txt").read_text())
+        self.assertEqual((mod / "data-final-fixes.lua").read_text(), "-- tested gameplay\n")
         self.assertEqual((self.root / "calls").read_text().splitlines(),
                          ["portal", "github", "portal", "github"])
 
@@ -237,6 +276,10 @@ class Publication(unittest.TestCase):
     def test_factorio_github_retry_reuses_tag_from_original_ci_commit(self):
         self.check_retry("FAIL_GITHUB", ["portal", "github", "portal", "github"], kind="factorio")
 
+    def test_stable_retry_reuses_tag_from_original_ci_commit(self):
+        self.factorio_candidate("2.1.20", "1.0.5", channel="stable")
+        self.check_retry("FAIL_PORTAL", ["portal", "portal", "github"], kind="factorio")
+
     def test_factorio_retry_does_not_reuse_an_unrelated_engine_tag(self):
         source = self.git("rev-parse", "HEAD")
         self.assertEqual(self.publish().returncode, 0)
@@ -244,6 +287,17 @@ class Publication(unittest.TestCase):
         result = self.publish(FACTORIO_VERSION="2.1.21")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("different release", result.stderr)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
+
+    def test_experimental_tag_cannot_be_reused_for_stable_publication(self):
+        source = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.publish().returncode, 0)
+        for ref in (source, "v1.0.5"):
+            with self.subTest(ref=ref):
+                self.git("checkout", "--detach", ref)
+                result = self.publish(RELEASE_CHANNEL="stable")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("different release", result.stderr)
         self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
 
     def test_full_ci_retry_and_manual_retry_keep_the_frozen_version_and_date(self):

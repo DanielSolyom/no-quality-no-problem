@@ -23,6 +23,10 @@ It validates the actual ZIP with both Quality-only and Space Age profiles by def
 
 CI on `main` handles the patch version, changelog, tag and publication of the tested ZIP.
 Use that workflow for releases instead of manually bumping versions, tagging or rebuilding.
+Let in-flight CI releases finish; do not cancel them when requirements change.
 Hourly checks publish a tested patch for each new supported Factorio version, stable or
-experimental, even when gameplay code is unchanged. A version appearing in both channels
-gets one release; publication retries reuse the same mod version and tag.
+experimental, even when gameplay code is unchanged. Promotion of a previously checked
+experimental version to stable gets another release; publication retries reuse the same
+mod version and tag. Test only the target engine for compatibility releases and the newest
+tracked engine in main CI, with both Quality-only and Space Age profiles; do not add a
+fixed legacy engine to the matrix.
