@@ -58,9 +58,11 @@ def plan(latest, history, state, line, force=None, source=None):
         if not force.startswith(line + "."):
             raise ValueError(f"{force} is outside the supported {line} release line")
         return [force]
-    experimental = latest["experimental"]["headless"]
-    version(experimental)
-    available = {experimental}
+    # Stable can advance independently; experimental may be absent when there
+    # is no experimental build. Either index can expose a new version first.
+    available = {latest["stable"]["headless"]}
+    if "headless" in latest.get("experimental", {}):
+        available.add(latest["experimental"]["headless"])
     # The update index catches releases missed during delayed hourly runs,
     # including multiple releases between checks. No game binary is downloaded.
     entries = history["core-linux_headless64"]
@@ -72,6 +74,11 @@ def plan(latest, history, state, line, force=None, source=None):
                 available.add(entry[field])
     for candidate in available:
         version(candidate)
+    # A partially published release must finish even if it leaves the indexes.
+    available.update(
+        candidate for candidate, entry in state["checked"].items()
+        if entry.get("release_status") == "pending"
+    )
 
     def needs_check(candidate):
         previous = state["checked"].get(candidate)
@@ -89,7 +96,6 @@ def plan(latest, history, state, line, force=None, source=None):
             for candidate in available
             if candidate.startswith(line + ".")
             and version(candidate) >= minimum
-            and version(candidate) <= version(experimental)
             and needs_check(candidate)
         ),
         key=lambda candidate: (
@@ -127,7 +133,7 @@ def record(state, versions, reports, run_url, published=False, validation_passed
             "source_fingerprint": results[0]["source_fingerprint"],
         }
         if previous.get("mod_version") == results[0]["mod_version"]:
-            for field in ("release_status", "release_ref"):
+            for field in ("release_status", "release_ref", "release_date"):
                 if field in previous:
                     state["checked"][engine][field] = previous[field]
         if published:
@@ -203,7 +209,7 @@ def prepare(mod, engine, target, released_on, kind="factorio"):
              ":!.github/factorio-releases.json"], text=True,
         ).strip()
     else:
-        change = f"Compatibility release for Factorio {engine} experimental."
+        change = f"Compatibility release for Factorio {engine}."
     changelog = mod / "changelog.txt"
     changelog.write_text(
         "-" * 99 + f"\nVersion: {target}\nDate: {released_on}\n  Changes:\n"

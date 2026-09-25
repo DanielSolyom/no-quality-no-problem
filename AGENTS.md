@@ -23,3 +23,6 @@ It validates the actual ZIP with both Quality-only and Space Age profiles by def
 
 CI on `main` handles the patch version, changelog, tag and publication of the tested ZIP.
 Use that workflow for releases instead of manually bumping versions, tagging or rebuilding.
+Hourly checks publish a tested patch for each new supported Factorio version, stable or
+experimental, even when gameplay code is unchanged. A version appearing in both channels
+gets one release; publication retries reuse the same mod version and tag.

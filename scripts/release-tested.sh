@@ -20,11 +20,11 @@ if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
   # Re-running just the publication job checks out the original source again.
   # Only this source's checkpoint may be reused; an unrelated tag is a conflict.
   if [ "$SOURCE_COMMIT" != "$(git rev-parse "$tag^{commit}")" ]; then
-    test "$RELEASE_KIND" = main
     python3 - "$tag" <<'PY'
 import json, os, subprocess, sys
 state = json.loads(subprocess.check_output(["git", "show", f"{sys.argv[1]}:.github/factorio-releases.json"], text=True))
-entry = state.get("main_release", {})
+entry = (state.get("main_release", {}) if os.environ["RELEASE_KIND"] == "main"
+         else state["checked"].get(os.environ["FACTORIO_VERSION"], {}))
 if (entry.get("source_commit") != os.environ["SOURCE_COMMIT"]
         or entry.get("mod_version") != os.environ["MOD_VERSION"]
         or entry.get("release_date") != os.environ["RELEASE_DATE"]):
@@ -69,9 +69,9 @@ entry = {
     "source_commit": os.environ["SOURCE_COMMIT"],
     "source_fingerprint": subprocess.check_output(["python3", "scripts/factorio-releases.py", "fingerprint"], text=True).strip(),
     "run_url": os.environ["RUN_URL"],
+    "release_date": os.environ["RELEASE_DATE"],
 }
 if os.environ["RELEASE_KIND"] == "main":
-    entry["release_date"] = os.environ["RELEASE_DATE"]
     state["main_release"] = entry
 else:
     entry["release_status"] = "pending"
@@ -81,7 +81,7 @@ PY
   git add no-quality-no-problem/info.json no-quality-no-problem/changelog.txt .github/factorio-releases.json
   message="Release $MOD_VERSION"
   if [ "$RELEASE_KIND" = factorio ]; then
-    message+=" for Factorio $FACTORIO_VERSION experimental"
+    message+=" for Factorio $FACTORIO_VERSION"
   fi
   git commit -m "$message"
   git tag "$tag"

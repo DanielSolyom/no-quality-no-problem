@@ -39,9 +39,46 @@ class ReleaseDetection(unittest.TestCase):
         self.latest["stable"]["headless"] = "2.1.12"
         self.assertEqual(self.plan().count("2.1.12"), 1)
 
-    def test_stable_release_does_not_advance_experimental_queue(self):
+    def test_stable_release_ahead_of_experimental_is_released(self):
         self.latest["stable"]["headless"] = "2.1.99"
-        self.assertNotIn("2.1.99", self.plan())
+        self.assertEqual(self.plan(), ["2.1.10", "2.1.11", "2.1.12", "2.1.99"])
+
+    def test_stable_releases_work_without_an_experimental_build(self):
+        self.latest["stable"]["headless"] = "2.1.13"
+        for experimental in (None, {}):
+            with self.subTest(experimental=experimental):
+                self.latest.pop("experimental", None)
+                if experimental is not None:
+                    self.latest["experimental"] = experimental
+                self.assertEqual(self.plan(), ["2.1.10", "2.1.11", "2.1.12", "2.1.13"])
+
+    def test_history_can_advance_before_latest_release_metadata(self):
+        self.history["core-linux_headless64"].append({"from": "2.1.12", "to": "2.1.13"})
+        self.assertEqual(self.plan(), ["2.1.10", "2.1.11", "2.1.12", "2.1.13"])
+
+    def test_passed_checks_still_need_publication_without_code_changes(self):
+        for engine in ("2.1.10", "2.1.11", "2.1.12"):
+            self.state["checked"][engine] = {
+                "status": "passed", "source_fingerprint": "unchanged",
+            }
+        self.assertEqual(releases.plan(
+            self.latest, self.history, self.state, "2.1", source="unchanged"
+        ), ["2.1.10", "2.1.11", "2.1.12"])
+
+    def test_published_versions_are_not_released_again_each_hour(self):
+        for engine in ("2.1.10", "2.1.11", "2.1.12"):
+            self.state["checked"][engine] = {
+                "status": "passed", "release_status": "published",
+                "source_fingerprint": "unchanged",
+            }
+        self.latest["stable"]["headless"] = "2.1.12"
+        self.assertEqual(releases.plan(
+            self.latest, self.history, self.state, "2.1", source="unchanged"
+        ), [])
+        self.latest["stable"]["headless"] = "2.1.13"
+        self.assertEqual(releases.plan(
+            self.latest, self.history, self.state, "2.1", source="unchanged"
+        ), ["2.1.13"])
 
     def test_partial_publication_is_resumed_first(self):
         self.state["checked"]["2.1.12"] = {
@@ -49,6 +86,12 @@ class ReleaseDetection(unittest.TestCase):
             "release_status": "pending",
         }
         self.assertEqual(self.plan()[0], "2.1.12")
+
+    def test_pending_publication_is_retained_after_leaving_the_indexes(self):
+        self.state["checked"]["2.1.13"] = {
+            "status": "passed", "release_status": "pending",
+        }
+        self.assertEqual(self.plan(), ["2.1.13", "2.1.10", "2.1.11", "2.1.12"])
 
     def test_failure_retries_when_source_changes(self):
         self.state["checked"]["2.1.12"] = {
@@ -75,6 +118,16 @@ class ReleaseDetection(unittest.TestCase):
         self.assertNotIn("2.2.0", self.plan())
         with self.assertRaises(ValueError):
             self.plan(force="2.2.0")
+
+    def test_supported_stable_line_continues_when_experimental_moves_on(self):
+        self.latest["stable"]["headless"] = "2.1.13"
+        self.latest["experimental"]["headless"] = "2.2.0"
+        self.assertEqual(self.plan(), ["2.1.10", "2.1.11", "2.1.12", "2.1.13"])
+
+    def test_malformed_stable_version_fails_detection(self):
+        self.latest["stable"]["headless"] = "invalid"
+        with self.assertRaises(ValueError):
+            self.plan()
 
     def test_malformed_response_is_not_no_update(self):
         self.latest["experimental"]["headless"] = "2.1.12; echo broken"
@@ -104,7 +157,7 @@ class ReleaseDetection(unittest.TestCase):
         result = releases.record(copy.deepcopy(self.state), ["2.1.12"], reports, "run")
         self.assertEqual(result["checked"]["2.1.12"]["status"], "passed")
         # A failed baseline engine must block publication even if this new
-        # experimental engine passes both profiles.
+        # engine passes both profiles.
         result = releases.record(
             copy.deepcopy(self.state),
             ["2.1.12"],
@@ -126,6 +179,15 @@ class ReleaseDetection(unittest.TestCase):
             copy.deepcopy(self.state), ["2.1.12"], reports, "run", published=True
         )
         self.assertEqual(result["checked"]["2.1.12"]["release_status"], "published")
+        pending = copy.deepcopy(self.state)
+        pending["checked"]["2.1.12"] = {
+            "status": "passed", "mod_version": "1.0.4",
+            "release_status": "pending", "release_ref": "v1.0.4",
+            "release_date": "2026-09-20",
+        }
+        result = releases.record(pending, ["2.1.12"], reports, "retry")
+        self.assertEqual(result["checked"]["2.1.12"]["release_date"], "2026-09-20")
+        self.assertEqual(result["checked"]["2.1.12"]["release_ref"], "v1.0.4")
         reports[1]["source_fingerprint"] = "different"
         with self.assertRaises(ValueError):
             releases.record(self.state, ["2.1.12"], reports, "run")

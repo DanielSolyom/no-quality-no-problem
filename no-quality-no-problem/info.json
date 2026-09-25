@@ -7,5 +7,5 @@
   "dependencies": [
     "quality >= 2.1.0"
   ],
-  "description": "Quality disabled, legendary factories and player equipment. Removes quality badges, selectors, modules and research, while giving your factory full legendary stats. Enemies, asteroids and world hazards keep their normal stats."
+  "description": "Removes quality progression and applies the highest quality tier's bonuses to factory entities and player equipment. Enemies and world hazards retain normal stats."
 }

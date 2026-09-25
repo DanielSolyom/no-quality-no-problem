@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       factorio:
-        description: 'Optional exact 2.1 experimental version to retry and release'
+        description: 'Optional exact 2.1 stable or experimental version to retry and release'
         required: false
         type: string
 
@@ -33,6 +33,10 @@ jobs:
       changed: ${{ steps.plan.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # A queued run must see releases committed by the preceding run.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
       - name: Fetch small release indexes
         run: |
           curl -fLsS --retry 2 --max-time 30 https://factorio.com/api/latest-releases -o /tmp/latest.json
@@ -44,7 +48,7 @@ jobs:
         run: |
           python3 scripts/factorio-releases.py plan --latest /tmp/latest.json --history /tmp/history.json --force "$FORCE_VERSION" > /tmp/versions.json
           python3 - <<'PYTHON'
-          import datetime, json, os, pathlib
+          import datetime, json, os, pathlib, subprocess
           versions = json.loads(pathlib.Path("/tmp/versions.json").read_text())
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               if not versions:
@@ -62,14 +66,17 @@ jobs:
                       info = json.loads(pathlib.Path("no-quality-no-problem/info.json").read_text())
                       major, minor, patch = map(int, info["version"].split("."))
                       mod_version = f"{major}.{minor}.{patch + 1}"
-                      source_ref = os.environ["GITHUB_SHA"]
+                      source_ref = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
                   output.write(f"changed=true\nversions={json.dumps([engine])}\nengine={engine}\n")
                   output.write(f"test_versions={json.dumps(list(dict.fromkeys([state['baseline_version'], engine])))}\n")
                   output.write(f"mod_version={mod_version}\nsource_ref={source_ref}\n")
-                  output.write(f"release_date={datetime.datetime.now(datetime.timezone.utc).date()}\n")
+                  release_date = (entry.get("release_date") if entry.get("release_status") == "pending" else None)
+                  output.write(f"release_date={release_date or datetime.datetime.now(datetime.timezone.utc).date()}\n")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"Experimental releases awaiting validation/publication: {versions}\n" if versions
-                            else "No new experimental release. No engine download, tests, build or publication needed.\n")
+              summary.write(f"Factorio releases awaiting validation/publication: {versions}\n" if versions
+                            else "No eligible Factorio release to process. Published versions are skipped; failed validations wait for source changes or a manual retry.\n")
+              if versions:
+                  summary.write(f"Factorio {engine}: validate and publish mod {mod_version}, even if gameplay code is unchanged.\n")
           PYTHON
 
   validate:

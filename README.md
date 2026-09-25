@@ -1,9 +1,8 @@
 # No Quality, No Problem
 
-**Quality, gone. Your factory, legendary.**
-
-A Factorio mod that removes the quality mechanic and gives your factory and player
-equipment legendary-quality stats. Enemies and world hazards keep their normal stats.
+A Factorio mod that removes quality progression and applies the highest available
+quality tier's bonuses to factory entities and player equipment. Enemies and world
+hazards retain normal stats.
 
 [![CI](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielSolyom/no-quality-no-problem/actions/workflows/ci.yml)
 [![Mod portal](https://img.shields.io/factorio-mod-portal/v/no-quality-no-problem?label=mod%20portal&color=orange)](https://mods.factorio.com/mod/no-quality-no-problem)

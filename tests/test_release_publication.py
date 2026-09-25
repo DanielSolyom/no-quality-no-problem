@@ -157,6 +157,33 @@ class Publication(unittest.TestCase):
             "FAIL_GITHUB", ["portal", "github", "portal", "github"]
         )
 
+    def test_each_new_engine_gets_a_patch_without_gameplay_changes(self):
+        gameplay = (self.repo / "no-quality-no-problem/data-final-fixes.lua").read_bytes()
+        first = self.publish()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        first_state = json.loads((self.repo / ".github/factorio-releases.json").read_text())
+        self.env.update(FACTORIO_VERSION="2.1.21", MOD_VERSION="1.0.6")
+        mod = self.repo / "no-quality-no-problem"
+        candidate = self.root / "next-candidate"
+        shutil.copytree(mod, candidate)
+        release_tools.prepare(candidate, "2.1.21", "1.0.6", "2026-09-20")
+        self.archive = self.root / "no-quality-no-problem_1.0.6.zip"
+        with zipfile.ZipFile(self.archive, "w") as archive:
+            for path in candidate.iterdir():
+                archive.write(path, "no-quality-no-problem_1.0.6/" + path.name)
+        second = self.publish()
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        state = json.loads((self.repo / ".github/factorio-releases.json").read_text())
+        self.assertEqual(self.git("tag", "--list"), "v1.0.5\nv1.0.6")
+        self.assertEqual(state["checked"]["2.1.21"]["mod_version"], "1.0.6")
+        self.assertEqual(state["checked"]["2.1.20"], first_state["checked"]["2.1.20"])
+        self.assertEqual((mod / "data-final-fixes.lua").read_bytes(), gameplay)
+        notes = (mod / "changelog.txt").read_text()
+        self.assertIn("Compatibility release for Factorio 2.1.21.", notes)
+        self.assertNotIn("experimental", notes)
+        self.assertEqual((self.root / "calls").read_text().splitlines(),
+                         ["portal", "github", "portal", "github"])
+
     def test_main_plans_a_patch_without_changing_the_source(self):
         result = self.plan_main()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -183,8 +210,9 @@ class Publication(unittest.TestCase):
         self.assertIn("Initial tested source", (self.repo / "no-quality-no-problem/changelog.txt").read_text())
         self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
 
-    def check_main_retry(self, failure, expected_calls):
-        self.main_candidate()
+    def check_retry(self, failure, expected_calls, kind="main"):
+        if kind == "main":
+            self.main_candidate()
         source = self.git("rev-parse", "HEAD")
         result = self.publish(**{failure: "1"})
         self.assertNotEqual(result.returncode, 0)
@@ -198,10 +226,25 @@ class Publication(unittest.TestCase):
         self.assertEqual((self.root / "calls").read_text().splitlines(), expected_calls)
 
     def test_main_portal_retry_reuses_tag_from_original_ci_commit(self):
-        self.check_main_retry("FAIL_PORTAL", ["portal", "portal", "github"])
+        self.check_retry("FAIL_PORTAL", ["portal", "portal", "github"])
 
     def test_main_github_retry_reuses_tag_from_original_ci_commit(self):
-        self.check_main_retry("FAIL_GITHUB", ["portal", "github", "portal", "github"])
+        self.check_retry("FAIL_GITHUB", ["portal", "github", "portal", "github"])
+
+    def test_factorio_portal_retry_reuses_tag_from_original_ci_commit(self):
+        self.check_retry("FAIL_PORTAL", ["portal", "portal", "github"], kind="factorio")
+
+    def test_factorio_github_retry_reuses_tag_from_original_ci_commit(self):
+        self.check_retry("FAIL_GITHUB", ["portal", "github", "portal", "github"], kind="factorio")
+
+    def test_factorio_retry_does_not_reuse_an_unrelated_engine_tag(self):
+        source = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.publish().returncode, 0)
+        self.git("checkout", "--detach", source)
+        result = self.publish(FACTORIO_VERSION="2.1.21")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different release", result.stderr)
+        self.assertEqual((self.root / "calls").read_text().splitlines(), ["portal", "github"])
 
     def test_full_ci_retry_and_manual_retry_keep_the_frozen_version_and_date(self):
         self.main_candidate()

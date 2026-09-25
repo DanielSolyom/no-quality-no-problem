@@ -1,6 +1,6 @@
 {
   "title": "No Quality, No Problem",
-  "summary": "Quality disabled, legendary factories and player equipment. Removes quality badges, selectors, modules and research, while giving your factory full legendary stats. Enemies, asteroids and world hazards keep their normal stats.",
+  "summary": "Removes quality progression and applies the highest quality tier's bonuses to factory entities and player equipment. Enemies and world hazards retain normal stats.",
   "description_file": "PORTAL.md",
   "category": "tweaks",
   "tags": ["manufacturing", "cheats"],
