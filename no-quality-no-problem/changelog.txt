@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.9
+Date: 2026-09-25
+  Changes:
+    - Publish stable promotions and validate only the target Factorio version
+    - Validated against an unmodified game with and without Space Age, including enemy, asteroid, acid and player gameplay regressions.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.8
 Date: 2026-09-22
   Changes:

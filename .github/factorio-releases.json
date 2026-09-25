@@ -19,12 +19,12 @@
     }
   },
   "main_release": {
-    "mod_version": "1.0.7",
-    "release_date": "2026-09-20",
-    "release_ref": "v1.0.7",
-    "run_url": "https://github.com/DanielSolyom/no-quality-no-problem/actions/runs/35509846044",
-    "source_commit": "4c5114b8000b78dfcb564367f738ecde596c83af",
-    "source_fingerprint": "8ad5205a04df87156645eb557c08c62b92f673804b0adbea28764cb1f33a3952",
+    "mod_version": "1.0.9",
+    "release_date": "2026-09-25",
+    "release_ref": "v1.0.9",
+    "run_url": "https://github.com/DanielSolyom/no-quality-no-problem/actions/runs/36099335377",
+    "source_commit": "e1d9ce768e15be714a9a539713bbf49aaf508061",
+    "source_fingerprint": "40714d032cb3007357e0397491b9f89cf6ac548a17fb1c43fbfe407355148799",
     "status": "passed"
   },
   "minimum_version": "2.1.19"
