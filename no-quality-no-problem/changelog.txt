@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.16
+Date: 2026-11-16
+  Changes:
+    - Compatibility release for Factorio 2.1.25 (experimental).
+    - Validated against an unmodified game with and without Space Age, including enemy, asteroid, acid and player gameplay regressions.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.15
 Date: 2026-10-29
   Changes:
